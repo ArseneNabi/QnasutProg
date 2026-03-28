@@ -1,0 +1,304 @@
+---
+title: "ProgCntBFa - Chaîne Complète CNT"
+author: "Service des Comptes Nationaux"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    theme: flatly
+    highlight: tango
+---
+
+# 0. Etapes préparatoires
+
+## 0.1. Chargement de l'environnement
+
+```{r setup, include=FALSE}
+# ==============================================================================
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(QnaSut)
+library(dplyr)
+library(tidyr)
+library(readxl)
+library(knitr)
+library(rjd3bench)
+
+cfg <- load_config()
+
+root_dir                 <- cfg$root_dir
+data_hist_dir            <- cfg$data_hist_dir
+nomen_dir                <- cfg$nomen_dir
+derniere_annee_definitif <- cfg$derniere_annee_definitif
+annee_fin_projection     <- cfg$annee_fin_projection
+```
+
+
+
+## 0.2.Importation des données
+```{r import-donnees}
+donnees <- charger_donnees_cnt(cfg)
+
+ind_crt        <- donnees$ind_crt
+ind_cst        <- donnees$ind_cst
+prod_crt       <- donnees$prod_crt
+prod_ch        <- donnees$prod_ch
+ci_crt         <- donnees$ci_crt
+ci_vol         <- donnees$ci_vol
+ci_ch          <- donnees$ci_ch
+ind_ce_struct  <- donnees$ind_ce_struct
+cna_ere_struct <- donnees$cna_ere_struct
+
+prix_etal      <- donnees$prix_etal
+prix_niv3      <- donnees$prix_niv3
+prix_ct        <- donnees$prix_ct
+
+db_tre_etal    <- donnees$db_tre_etal
+table_passage  <- donnees$table_passage
+Map_Branches   <- donnees$Map_Branches
+Map_Produits   <- donnees$Map_Produits
+```
+
+
+## 0.3. Analyse et Projection des Ratios Structurels (TRE)
+
+```{r module-tre}
+tre <- executer_module_tre(donnees, cfg)
+
+ratios_annuels <- tre$ratios_annuels
+res_trim       <- tre$res_trim
+```
+
+
+# 1. Optique Production
+
+## 1.1. Benchmarking des Indicateurs directs
+
+
+```{r optique-production-directe}
+prod_direct <- executer_optique_production_directe(donnees, tre)
+
+cnt_ind1_crt <- prod_direct$cnt_ind1_crt
+cnt_ind1_ch  <- prod_direct$cnt_ind1_ch
+cnt_ind2_crt <- prod_direct$cnt_ind2_crt
+cnt_ind2_ch  <- prod_direct$cnt_ind2_ch
+cnt_ind3_crt <- prod_direct$cnt_ind3_crt
+cnt_ind3_ch  <- prod_direct$cnt_ind3_ch
+
+est_ind2_vol <- prod_direct$est_ind2_vol
+est_ind3_val <- prod_direct$est_ind3_val
+
+df_all_crt   <- prod_direct$df_all_crt
+df_all_ch    <- prod_direct$df_all_ch
+prod_complete <- prod_direct$prod_complete
+```
+
+
+## 1.2. Calcul des indicateurs indirects à partir de CI (B2)
+
+### 1.2.1. Calcul des indicateurs de la CI
+
+```{r ci-branches}
+ci_branches <- calculer_ci_branches(
+  prod_complete = prod_direct$prod_complete,
+  res_trim      = tre$res_trim,
+  ci_crt        = donnees$ci_crt,
+  ci_vol        = donnees$ci_vol
+)
+
+p1_agreg        <- ci_branches$p1_agreg
+df_ratios_clean <- ci_branches$df_ratios_clean
+df_calcul_p2    <- ci_branches$df_calcul_p2
+est_p2_chained  <- ci_branches$est_p2_chained
+ci_crt_agg      <- ci_branches$ci_crt_agg
+ci_vol_agg      <- ci_branches$ci_vol_agg
+ci_bran         <- ci_branches$ci_bran
+bench_p2_crt    <- ci_branches$bench_p2_crt
+bench_p2_ch     <- ci_branches$bench_p2_ch
+p2_final_cal    <- ci_branches$p2_final_cal
+
+```
+
+
+### 1.2.2. Calcul indirect des indicateurs Ind4 à partir de la CI
+
+```{r ind4-depuis-ci}
+ind4_ci <- calculer_ind4_depuis_ci(
+  p2_final_cal = ci_branches$p2_final_cal,
+  res_trim     = tre$res_trim,
+  Map_Produits = donnees$Map_Produits,
+  ind_crt      = donnees$ind_crt,
+  prod_crt     = donnees$prod_crt,
+  prod_ch      = donnees$prod_ch
+)
+
+p2_par_produit_n3        <- ind4_ci$p2_par_produit_n3
+p2_par_produit_etal      <- ind4_ci$p2_par_produit_etal
+produits_ind4            <- ind4_ci$produits_ind4
+p2_par_produit_etal_ind4 <- ind4_ci$p2_par_produit_etal_ind4
+ind4_source_complete     <- ind4_ci$ind4_source_complete
+ind4_crt_source          <- ind4_ci$ind4_crt_source
+ind4_ch_source           <- ind4_ci$ind4_ch_source
+cnt_ind4_crt             <- ind4_ci$cnt_ind4_crt
+cnt_ind4_ch              <- ind4_ci$cnt_ind4_ch
+ind4_final               <- ind4_ci$ind4_final
+```
+
+
+### 1.2.3. Calcul des indicateurs Ind5 (marges commerce et transport)
+
+```{r ind5-marges}
+ind5 <- calculer_ind5_depuis_production(
+  p1_agreg           = p1_agreg,
+  ind4_final         = ind4_final,
+  poids_trim         = res_trim$poids_trim,
+  Map_Produits       = donnees$Map_Produits,
+  cna_ere_struct     = cna_ere_struct,
+  ind_ce_struct      = ind_ce_struct,
+  prod_crt           = donnees$prod_crt,
+  prod_ch            = donnees$prod_ch,
+  derniere_annee_cna = derniere_annee_definitif,
+  annee_fin_proj     = annee_fin_projection
+)
+
+p1_agreg_complet    <- ind5$p1_agreg_complet
+p1_par_produit      <- ind5$p1_par_produit
+p1_ere_crt          <- ind5$p1_ere_crt
+p1_ere_vol          <- ind5$p1_ere_vol
+ratios_ere_trim_crt <- ind5$ratios_ere_trim_crt
+ratios_ere_trim_vol <- ind5$ratios_ere_trim_vol
+ind5_marges         <- ind5$ind5_marges
+cnt_ind5_crt        <- ind5$cnt_ind5_crt
+cnt_ind5_ch         <- ind5$cnt_ind5_ch
+```
+
+
+## 1.3. Comptes de production : CI complète, VA par branche
+
+```{r comptes-production}
+df_comptes_finaux <- calculer_comptes_production(
+  p1_agreg_complet = p1_agreg_complet,
+  p2_final_cal     = p2_final_cal,
+  ct_trim          = res_trim$ct_trim
+)
+```
+
+```{r comptes-production-export}
+# Export Excel : 3 feuilles (courant, VPAP, chaîné) + une feuille de synthèse annuelle
+path_export_comptes <- file.path(root_dir,
+  paste0("Comptes_Production_", format(Sys.Date(), "%Y%m%d"), ".xlsx"))
+
+writexl::write_xlsx(
+  list(
+    Courant = df_comptes_finaux |>
+      dplyr::select(annee, trimestre, Code_Branche,
+                    P1_crt, P2_crt, VA_crt),
+    VPAP = df_comptes_finaux |>
+      dplyr::select(annee, trimestre, Code_Branche,
+                    P1_vpap, P2_vpap, VA_vpap),
+    Chaine = df_comptes_finaux |>
+      dplyr::select(annee, trimestre, Code_Branche,
+                    P1_ch, P2_ch, VA_ch),
+    Synthese_annuelle = df_comptes_finaux |>
+      dplyr::group_by(annee, Code_Branche) |>
+      dplyr::summarise(
+        P1_crt = sum(P1_crt), P2_crt = sum(P2_crt), VA_crt = sum(VA_crt),
+        P1_vpap = sum(P1_vpap), P2_vpap = sum(P2_vpap), VA_vpap = sum(VA_vpap),
+        .groups = "drop"
+      )
+  ),
+  path = path_export_comptes
+)
+message("Export : ", path_export_comptes)
+```
+
+
+# 2. Optique Depenses — ERE
+
+## 2.1. Production et CI par produit ERE + Imports/Exports
+
+```{r ere-base}
+# --- P1 : transformation branche → produit ERE puis benchmarking sur cibles CNA ---
+p1_final       <- calculer_p1_ere(p1_agreg_complet, res_trim$poids_trim, Map_Produits)
+p1_par_produit <- p1_final$p1_par_produit
+p1_ere_bench   <- benchmarker_p1_ere(p1_final$p1_ere_crt, p1_final$p1_ere_vol, cna_ere_struct)
+p1_ere_crt     <- p1_ere_bench$p1_ere_crt
+p1_ere_vol     <- p1_ere_bench$p1_ere_vol
+
+# --- P2 : CI par produit ERE (agrégation TRE) puis benchmarking sur cibles CNA ---
+p2_ere        <- calculer_p2_ere(p2_par_produit_n3, Map_Produits)
+p2_ere_bench  <- benchmarker_p2_ere(p2_ere$p2_ere_crt, p2_ere$p2_ere_vol, cna_ere_struct)
+p2_ere_crt    <- p2_ere_bench$p2_ere_crt
+p2_ere_vol    <- p2_ere_bench$p2_ere_vol
+
+# --- Imports / Exports ---
+imp_exp       <- executer_benchmarking_imp_exp(ind_ce_struct, cna_ere_struct)
+cnt_imp_final <- imp_exp$cnt_imp_final
+cnt_exp_final <- imp_exp$cnt_exp_final
+```
+
+## 2.2. Ressources ERE (courant + VPAP + chaîné)
+
+```{r ere-ressources}
+ere_res <- executer_ressources_ere(
+  p1_ere_crt         = p1_ere_crt,
+  p1_ere_vol         = p1_ere_vol,
+  cnt_imp_final      = cnt_imp_final,
+  cna_ere_struct     = cna_ere_struct,
+  derniere_annee_cna = derniere_annee_definitif,
+  annee_fin_proj     = annee_fin_projection
+)
+ere_ressources_completes      <- ere_res$ressources_crt
+ere_ressources_vpap_completes <- ere_res$ressources_vpap
+ere_ressources_chaine         <- ere_res$ressources_chaine
+```
+
+## 2.3. Emplois ERE (courant + VPAP + chaîné)
+
+```{r ere-emplois-meta}
+# Metadonnees — a actualiser si la nomenclature des composantes change
+path_methode_ere <- file.path(root_dir, "Methode_ERE.xlsx")
+
+map_feuille_cna <- tibble::tribble(
+  ~feuille,    ~composante_cna,
+  "CFmarch",   "CF Marchande Menage   Prix d'acquisition",
+  "CFnmarch",  "CF Non Marchande Menage Prix d'acquisition",
+  "CFapu",     "CF Non Marchande APU Prix d'acquisition",
+  "CFisblsm",  "CF Non Marchande  ISBL Prix d'acquisition",
+  "FBCF",      "FBCF Prix d'acquisition",
+  "VS",        "VS Prix d'acquisition",
+  "AOV",       "Aquisition moyen cession de origen de valeur Prix d'acquisition"
+)
+
+map_apu_cols <- tibble::tribble(
+  ~Code_Produit, ~col_apu,
+  "JZ000", "Ind1_APU*JZ000",
+  "KZ000", "Ind1_APU*K21004",
+  "OZ000", "Ind1_APU*L22000",
+  "PZ000", "Ind1_APU*P26000",
+  "QZ000", "Ind1_APU*QZ000",
+  "RS001", "Ind1_APU*RS001"
+)
+```
+
+```{r ere-emplois}
+ere_emp              <- executer_emplois_ere(
+  ere_res          = ere_res,
+  p2_ere_crt       = p2_ere_crt,
+  p2_ere_vol       = p2_ere_vol,
+  cnt_exp_final    = cnt_exp_final,
+  p1_ere_crt       = p1_ere_crt,
+  p1_ere_vol       = p1_ere_vol,
+  cna_ere_struct   = cna_ere_struct,
+  path_methode_ere = path_methode_ere,
+  map_feuille_cna  = map_feuille_cna,
+  map_apu_cols     = map_apu_cols,
+  ind_crt          = ind_crt,
+  ind_cst          = ind_cst
+)
+emplois_ere_complets <- ere_emp$emplois_crt
+emplois_ere_vol      <- ere_emp$emplois_vol
+emplois_ere_vpap     <- ere_emp$emplois_vpap
+```
+

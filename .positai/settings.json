@@ -1,0 +1,9 @@
+{
+  "permission": {
+    "edit": {
+      "*/DESCRIPTION": "allow",
+      "*.R": "allow",
+      "*": "allow"
+    }
+  }
+}

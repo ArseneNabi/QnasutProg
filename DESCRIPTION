@@ -1,0 +1,32 @@
+Package: QnaSut
+Type: Package
+Title: Outils pour Comptes Nationaux Trimestriels du Burkina Faso
+Version: 0.0.0.9000
+Authors@R: person("Arsene", "NABI", email = "arsenefilsnabi@gmail.com", role = c("aut", "cre"))
+Description: Fonctions d'importation de donnees, de chainage volume/prix,
+    d'etalonage par benchmarking (Cholette) et de preparation des agregats
+    pour les Comptes Nationaux Trimestriels du Burkina Faso.
+License: MIT + file LICENSE
+Depends: R (>= 4.1.0)
+Imports:
+    dplyr,
+    tidyr,
+    readxl,
+    tibble,
+    stats,
+    rjd3bench,
+    writexl,
+    purrr,
+    yaml
+Suggests:
+    readr,
+    knitr,
+    ggplot2,
+    rmarkdown,
+    testthat (>= 3.0.0),
+    withr
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Config/testthat/edition: 3

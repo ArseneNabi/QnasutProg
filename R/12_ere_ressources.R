@@ -34,6 +34,8 @@ NULL
 #'     (\code{P1_crt}).}
 #'   \item{\code{p1_ere_vol}}{Production agrégée par produit ERE en volume VPAP
 #'     (\code{P1_vol}).}
+#'   \item{\code{p1_ere_ch}}{Production agrégée par produit ERE en volume
+#'     chaîné (\code{P1_ch}).}
 #' }
 #' @export
 calculer_p1_ere <- function(p1_agreg_complet, poids_trim, Map_Produits) {
@@ -66,16 +68,28 @@ calculer_p1_ere <- function(p1_agreg_complet, poids_trim, Map_Produits) {
 
   p1_ere_crt <- .agreger_ere("valeur_crt", "P1_crt")
   p1_ere_vol <- .agreger_ere("valeur_vol", "P1_vol")
+  p1_ere_ch <- dplyr::inner_join(
+    p1_ere_crt,
+    p1_ere_vol,
+    by = c("annee", "trimestre", "Code_Produit")
+  ) |>
+    dplyr::arrange(Code_Produit, annee, trimestre) |>
+    dplyr::group_by(Code_Produit) |>
+    dplyr::mutate(P1_ch = calcul_valeur_chainee_trim(P1_crt, P1_vol)) |>
+    dplyr::ungroup() |>
+    dplyr::select(annee, trimestre, Code_Produit, P1_ch)
 
   message("\u2705 p1_ere | ", nrow(p1_ere_crt), " lignes | ",
           dplyr::n_distinct(p1_ere_crt$Code_Produit), " produits ERE | ",
           dplyr::n_distinct(p1_par_produit$Code_Produit), " produits N3 | ",
           "NA crt : ", sum(is.na(p1_ere_crt$P1_crt)),
-          " | NA vol : ", sum(is.na(p1_ere_vol$P1_vol)))
+          " | NA vol : ", sum(is.na(p1_ere_vol$P1_vol)),
+          " | NA ch : ", sum(is.na(p1_ere_ch$P1_ch)))
 
   list(p1_par_produit = p1_par_produit,
        p1_ere_crt     = p1_ere_crt,
-       p1_ere_vol     = p1_ere_vol)
+       p1_ere_vol     = p1_ere_vol,
+       p1_ere_ch      = p1_ere_ch)
 }
 
 
@@ -90,10 +104,11 @@ calculer_p1_ere <- function(p1_agreg_complet, poids_trim, Map_Produits) {
 #' @param Map_Produits Table de correspondance produits (\code{donnees$Map_Produits}).
 #'   Doit contenir \code{Code_Prod_N3} et \code{Code_Prod_Ct}.
 #'
-#' @return Liste à deux éléments :
+#' @return Liste à trois éléments :
 #' \describe{
 #'   \item{\code{p2_ere_crt}}{CI par produit ERE en courant (\code{P2_crt}).}
 #'   \item{\code{p2_ere_vol}}{CI par produit ERE en volume (\code{P2_vol}).}
+#'   \item{\code{p2_ere_ch}}{CI par produit ERE en volume chaîné (\code{P2_ch}).}
 #' }
 #' @export
 calculer_p2_ere <- function(p2_par_produit_n3, Map_Produits) {
@@ -115,14 +130,26 @@ calculer_p2_ere <- function(p2_par_produit_n3, Map_Produits) {
 
   p2_ere_crt <- .agreger("valeur_crt", "P2_crt")
   p2_ere_vol <- .agreger("valeur_vol", "P2_vol")
+  p2_ere_ch <- dplyr::inner_join(
+    p2_ere_crt,
+    p2_ere_vol,
+    by = c("annee", "trimestre", "Code_Produit")
+  ) |>
+    dplyr::arrange(Code_Produit, annee, trimestre) |>
+    dplyr::group_by(Code_Produit) |>
+    dplyr::mutate(P2_ch = calcul_valeur_chainee_trim(P2_crt, P2_vol)) |>
+    dplyr::ungroup() |>
+    dplyr::select(annee, trimestre, Code_Produit, P2_ch)
 
   message("\u2705 p2_ere | ", nrow(p2_ere_crt), " lignes | ",
           dplyr::n_distinct(p2_ere_crt$Code_Produit), " produits ERE | ",
           "NA crt : ", sum(is.na(p2_ere_crt$P2_crt)),
-          " | NA vol : ", sum(is.na(p2_ere_vol$P2_vol)))
+          " | NA vol : ", sum(is.na(p2_ere_vol$P2_vol)),
+          " | NA ch : ", sum(is.na(p2_ere_ch$P2_ch)))
 
   list(p2_ere_crt = p2_ere_crt,
-       p2_ere_vol = p2_ere_vol)
+       p2_ere_vol = p2_ere_vol,
+       p2_ere_ch  = p2_ere_ch)
 }
 
 
@@ -139,18 +166,27 @@ calculer_p2_ere <- function(p2_par_produit_n3, Map_Produits) {
 #' @param p1_ere_crt Tibble production par produit ERE en courant, sortie de
 #'   \code{calculer_p1_ere()}. Colonnes : \code{annee}, \code{trimestre},
 #'   \code{Code_Produit}, \code{P1_crt}.
-#' @param p1_ere_vol Tibble production par produit ERE en volume (VPAP).
-#'   Colonnes : \code{annee}, \code{trimestre}, \code{Code_Produit}, \code{P1_vol}.
+#' @param p1_ere_vol Tibble production par produit ERE en volume (VPAP),
+#'   utilisé uniquement pour rétro-compatibilité de sortie. Colonnes :
+#'   \code{annee}, \code{trimestre}, \code{Code_Produit}, \code{P1_vol}.
 #' @param cna_ere_struct Liste ERE annuelle. Doit contenir l'élément
 #'   \code{"PRODUCTION"} avec sous-éléments \code{CnaErECrt} et \code{CnaErECh}.
+#' @param p1_ere_ch Tibble production par produit ERE en volume chaîné.
+#'   Colonnes : \code{annee}, \code{trimestre}, \code{Code_Produit}, \code{P1_ch}.
+#'   Si \code{NULL}, la série chaînée est reconstruite à partir de
+#'   \code{p1_ere_crt} et \code{p1_ere_vol}.
 #'
-#' @return Liste à deux éléments :
+#' @return Liste à trois éléments :
 #' \describe{
 #'   \item{\code{p1_ere_crt}}{Production benchmarkée en courant.}
-#'   \item{\code{p1_ere_vol}}{Production benchmarkée en volume VPAP.}
+#'   \item{\code{p1_ere_vol}}{Production benchmarkée en volume VPAP
+#'     (recalculée depuis courant + chaîné).}
+#'   \item{\code{p1_ere_ch}}{Production benchmarkée en volume chaîné
+#'     (série utilisée pour le benchmarking).}
 #' }
 #' @export
-benchmarker_p1_ere <- function(p1_ere_crt, p1_ere_vol, cna_ere_struct) {
+benchmarker_p1_ere <- function(p1_ere_crt, p1_ere_vol, cna_ere_struct,
+                               p1_ere_ch = NULL) {
 
   .lire_cna_p1 <- function(type_prix) {
     pivoter_ere_long(
@@ -194,16 +230,41 @@ benchmarker_p1_ere <- function(p1_ere_crt, p1_ere_vol, cna_ere_struct) {
   }
 
   message("\u25b6 Benchmarking P1 produit ERE contre cibles CNA annuelles...")
+  if (is.null(p1_ere_ch)) {
+    p1_ere_ch <- dplyr::inner_join(
+      p1_ere_crt,
+      p1_ere_vol,
+      by = c("annee", "trimestre", "Code_Produit")
+    ) |>
+      dplyr::arrange(Code_Produit, annee, trimestre) |>
+      dplyr::group_by(Code_Produit) |>
+      dplyr::mutate(P1_ch = calcul_valeur_chainee_trim(P1_crt, P1_vol)) |>
+      dplyr::ungroup() |>
+      dplyr::select(annee, trimestre, Code_Produit, P1_ch)
+  }
+
   p1_crt_bench <- .bench_p1(p1_ere_crt, "P1_crt", cna_p1_crt, "crt")
-  p1_vol_bench <- .bench_p1(p1_ere_vol, "P1_vol", cna_p1_ch,  "vol")
+  p1_ch_bench  <- .bench_p1(p1_ere_ch,  "P1_ch",  cna_p1_ch,  "ch")
+  p1_vol_bench <- dplyr::inner_join(
+    p1_crt_bench,
+    p1_ch_bench,
+    by = c("annee", "trimestre", "Code_Produit")
+  ) |>
+    dplyr::arrange(Code_Produit, annee, trimestre) |>
+    dplyr::group_by(Code_Produit) |>
+    dplyr::mutate(P1_vol = dechainer_valeurs(P1_crt, P1_ch, trim = TRUE)) |>
+    dplyr::ungroup() |>
+    dplyr::select(annee, trimestre, Code_Produit, P1_vol)
 
   message("\u2705 P1 bench\u00e9e | produits : ",
           dplyr::n_distinct(p1_crt_bench$Code_Produit),
           " | NA crt : ", sum(is.na(p1_crt_bench$P1_crt)),
-          " | NA vol : ", sum(is.na(p1_vol_bench$P1_vol)))
+          " | NA vol : ", sum(is.na(p1_vol_bench$P1_vol)),
+          " | NA ch : ", sum(is.na(p1_ch_bench$P1_ch)))
 
   list(p1_ere_crt = p1_crt_bench,
-       p1_ere_vol = p1_vol_bench)
+       p1_ere_vol = p1_vol_bench,
+       p1_ere_ch  = p1_ch_bench)
 }
 
 
@@ -221,20 +282,28 @@ benchmarker_p1_ere <- function(p1_ere_crt, p1_ere_vol, cna_ere_struct) {
 #' @param p2_ere_crt Tibble CI par produit ERE en courant, sortie de
 #'   \code{calculer_p2_ere()}. Colonnes : \code{annee}, \code{trimestre},
 #'   \code{Code_Produit}, \code{P2_crt}.
-#' @param p2_ere_vol Tibble CI par produit ERE en volume (VPAP).
-#'   Colonnes : \code{annee}, \code{trimestre}, \code{Code_Produit},
-#'   \code{P2_vol}.
+#' @param p2_ere_vol Tibble CI par produit ERE en volume (VPAP),
+#'   utilisé uniquement pour rétro-compatibilité de sortie. Colonnes :
+#'   \code{annee}, \code{trimestre}, \code{Code_Produit}, \code{P2_vol}.
 #' @param cna_ere_struct Liste ERE annuelle. Doit contenir l'élément
 #'   \code{"CI Prix d'acquisition"} avec sous-éléments \code{CnaErECrt}
 #'   et \code{CnaErECh}.
+#' @param p2_ere_ch Tibble CI par produit ERE en volume chaîné.
+#'   Colonnes : \code{annee}, \code{trimestre}, \code{Code_Produit}, \code{P2_ch}.
+#'   Si \code{NULL}, la série chaînée est reconstruite à partir de
+#'   \code{p2_ere_crt} et \code{p2_ere_vol}.
 #'
-#' @return Liste à deux éléments :
+#' @return Liste à trois éléments :
 #' \describe{
 #'   \item{\code{p2_ere_crt}}{CI benchmarkée en courant.}
-#'   \item{\code{p2_ere_vol}}{CI benchmarkée en volume VPAP.}
+#'   \item{\code{p2_ere_vol}}{CI benchmarkée en volume VPAP
+#'     (recalculée depuis courant + chaîné).}
+#'   \item{\code{p2_ere_ch}}{CI benchmarkée en volume chaîné
+#'     (série utilisée pour le benchmarking).}
 #' }
 #' @export
-benchmarker_p2_ere <- function(p2_ere_crt, p2_ere_vol, cna_ere_struct) {
+benchmarker_p2_ere <- function(p2_ere_crt, p2_ere_vol, cna_ere_struct,
+                               p2_ere_ch = NULL) {
 
   .lire_cna_ci <- function(type_prix) {
     pivoter_ere_long(
@@ -280,16 +349,41 @@ benchmarker_p2_ere <- function(p2_ere_crt, p2_ere_vol, cna_ere_struct) {
   }
 
   message("\u25b6 Benchmarking CI produit ERE contre cibles CNA annuelles...")
+  if (is.null(p2_ere_ch)) {
+    p2_ere_ch <- dplyr::inner_join(
+      p2_ere_crt,
+      p2_ere_vol,
+      by = c("annee", "trimestre", "Code_Produit")
+    ) |>
+      dplyr::arrange(Code_Produit, annee, trimestre) |>
+      dplyr::group_by(Code_Produit) |>
+      dplyr::mutate(P2_ch = calcul_valeur_chainee_trim(P2_crt, P2_vol)) |>
+      dplyr::ungroup() |>
+      dplyr::select(annee, trimestre, Code_Produit, P2_ch)
+  }
+
   p2_crt_bench <- .bench_ci(p2_ere_crt, "P2_crt", cna_ci_crt, "crt")
-  p2_vol_bench <- .bench_ci(p2_ere_vol, "P2_vol", cna_ci_ch,  "vol")
+  p2_ch_bench  <- .bench_ci(p2_ere_ch,  "P2_ch",  cna_ci_ch,  "ch")
+  p2_vol_bench <- dplyr::inner_join(
+    p2_crt_bench,
+    p2_ch_bench,
+    by = c("annee", "trimestre", "Code_Produit")
+  ) |>
+    dplyr::arrange(Code_Produit, annee, trimestre) |>
+    dplyr::group_by(Code_Produit) |>
+    dplyr::mutate(P2_vol = dechainer_valeurs(P2_crt, P2_ch, trim = TRUE)) |>
+    dplyr::ungroup() |>
+    dplyr::select(annee, trimestre, Code_Produit, P2_vol)
 
   message("\u2705 CI bench\u00e9e | produits crt : ",
           dplyr::n_distinct(p2_crt_bench$Code_Produit),
           " | NA crt : ", sum(is.na(p2_crt_bench$P2_crt)),
-          " | NA vol : ", sum(is.na(p2_vol_bench$P2_vol)))
+          " | NA vol : ", sum(is.na(p2_vol_bench$P2_vol)),
+          " | NA ch : ", sum(is.na(p2_ch_bench$P2_ch)))
 
   list(p2_ere_crt = p2_crt_bench,
-       p2_ere_vol = p2_vol_bench)
+       p2_ere_vol = p2_vol_bench,
+       p2_ere_ch  = p2_ch_bench)
 }
 
 

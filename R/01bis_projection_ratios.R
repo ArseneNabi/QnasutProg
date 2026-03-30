@@ -462,18 +462,27 @@ estimer_composante_emploi <- function(feuille_nm, composante_cna_nm,
 
 #' Calculer une composante emploi ERE par la methode du solde
 #'
-#' Solde = Ressources totales - somme des autres emplois deja estimes.
-#' Utilise pour les produits dont la composante emploi est residuelle.
+#' Construit d abord un indicateur trimestriel residuel :
+#' \deqn{solde_{trim} = ressources_{trim} - \sum autres\_emplois_{trim}}
+#' puis benchmarke ce solde trimestriel sur la cible annuelle CNA de la
+#' composante correspondante. Les annees sans cible CNA conservent le profil de
+#' l indicateur trimestriel (comportement standard de \code{benchmark_groupe()}).
 #'
 #' @param feuille_nm Nom de la composante solde (ex. "VS", "CFmarch").
 #' @param methodes_ere Table longue des methodes (feuille, Code_Produit, Methode).
 #' @param ind_ressources_trim Ressources totales trimestrielles par produit.
 #' @param emplois_non_solde Emplois deja estimes (annee, trimestre, Code_Produit, valeur_cal, composante).
 #' @param composantes_autres Vecteur des composantes a soustraire pour obtenir le solde.
+#' @param map_feuille_cna Tibble feuille <-> composante_cna.
+#' @param cna_ere_struct Liste des composantes ERE annuelles.
+#' @param type_prix Type de prix pour la cible CNA : \code{"CnaErECrt"} (defaut)
+#'   ou \code{"CnaErECh"}.
 #' @return Tibble : annee, trimestre, Code_Produit, valeur_cal, composante.
 #' @export
 calculer_solde_ere <- function(feuille_nm, methodes_ere, ind_ressources_trim,
-                               emplois_non_solde, composantes_autres) {
+                               emplois_non_solde, composantes_autres,
+                               map_feuille_cna, cna_ere_struct,
+                               type_prix = "CnaErECrt") {
 
   prods_solde <- dplyr::pull(
     dplyr::filter(methodes_ere, feuille == feuille_nm, Methode == "solde"),
@@ -486,13 +495,52 @@ calculer_solde_ere <- function(feuille_nm, methodes_ere, ind_ressources_trim,
     dplyr::group_by(annee, trimestre, Code_Produit) |>
     dplyr::summarise(autres_emplois = sum(valeur_cal, na.rm = TRUE), .groups = "drop")
 
-  ind_ressources_trim |>
+  solde_indicateur <- ind_ressources_trim |>
     dplyr::filter(Code_Produit %in% prods_solde) |>
     dplyr::rename(total_ressources = valeur) |>
     dplyr::left_join(autres_agg, by = c("annee", "trimestre", "Code_Produit")) |>
     dplyr::mutate(
-      valeur_cal = total_ressources - tidyr::replace_na(autres_emplois, 0),
+      valeur_ind = total_ressources - tidyr::replace_na(autres_emplois, 0),
       composante = feuille_nm
     ) |>
-    dplyr::select(annee, trimestre, Code_Produit, valeur_cal, composante)
+    dplyr::select(annee, trimestre, Code_Produit, valeur_ind, composante)
+
+  composante_cna_nm <- map_feuille_cna$composante_cna[map_feuille_cna$feuille == feuille_nm][1]
+  if (is.na(composante_cna_nm) || is.null(cna_ere_struct[[composante_cna_nm]])) {
+    return(dplyr::transmute(solde_indicateur, annee, trimestre, Code_Produit,
+                            valeur_cal = valeur_ind, composante))
+  }
+
+  sous_element <- if (type_prix == "CnaErECh") "CnaErECh" else "CnaErECrt"
+  libelle_prix <- if (type_prix == "CnaErECh") "Ch" else "Crt"
+
+  cna_target <- pivoter_ere_long(
+    cna_ere_struct[[composante_cna_nm]][[sous_element]], libelle_prix, feuille_nm
+  ) |>
+    dplyr::filter(Code_Produit %in% prods_solde) |>
+    dplyr::select(annee, Code_Produit, valeur)
+
+  if (nrow(cna_target) == 0) {
+    return(dplyr::transmute(solde_indicateur, annee, trimestre, Code_Produit,
+                            valeur_cal = valeur_ind, composante))
+  }
+
+  source_bench <- solde_indicateur |>
+    dplyr::mutate(
+      full_code = Code_Produit,
+      type_ind = feuille_nm,
+      periode = paste0(annee, "T", trimestre)
+    )
+  target_bench <- dplyr::rename(cna_target, full_code = Code_Produit)
+
+  res_bench <- benchmark_groupe(source_bench, target_bench,
+                                type_filter = feuille_nm, value_col = "valeur_ind")
+
+  if (nrow(res_bench) == 0) {
+    return(dplyr::transmute(solde_indicateur, annee, trimestre, Code_Produit,
+                            valeur_cal = valeur_ind, composante))
+  }
+
+  dplyr::select(res_bench, annee, trimestre, Code_Produit = full_code,
+                valeur_cal, composante)
 }

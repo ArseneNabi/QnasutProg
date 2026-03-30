@@ -177,6 +177,9 @@ lire_methodes_ere <- function(path_methode_ere, map_feuille_cna) {
 #'
 #' Applique estimer_composante_emploi() sur toutes les composantes de
 #' map_feuille_cna et retourne un tibble consolide.
+#' Les produits marques \code{Methode == "solde"} sont exclus ici et doivent
+#' etre traites ensuite via \code{calculer_solde_ere()} (solde trimestriel puis
+#' benchmarking sur cible annuelle CNA).
 #'
 #' @param map_feuille_cna Tibble feuille <-> composante_cna.
 #' @param methodes_ere Table des methodes (issue de lire_methodes_ere()).
@@ -202,4 +205,3 @@ estimer_emplois_ere <- function(map_feuille_cna, methodes_ere, cna_ere_struct,
                                 type_prix = type_prix)
     })
 }
-

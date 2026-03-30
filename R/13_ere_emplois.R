@@ -89,6 +89,7 @@ executer_emplois_ere <- function(ere_res,
     dplyr::summarise(valeur = sum(valeur_composante, na.rm = TRUE), .groups = "drop")
   ind_prod_trim <- dplyr::rename(p1_ere_crt, valeur = P1_crt)
 
+  # Composantes benchmarkees directement par indicateur trimestriel
   emplois_bench <- estimer_emplois_ere(
     map_feuille_cna, methodes_ere, cna_ere_struct,
     grille_trim, ind_ressources_trim, ind_prod_trim, ind_apu_trim
@@ -100,14 +101,17 @@ executer_emplois_ere <- function(ere_res,
                                 Code_Produit, valeur_cal = exp_crt), composante = "EXPORTATIONS"),
     emplois_bench
   )
+  # Composantes residuelles : solde trimestriel puis benchmarking annuel CNA
   solde_vs <- calculer_solde_ere(
     "VS", methodes_ere, ind_ressources_trim, emplois_non_solde,
-    c("CI", "EXPORTATIONS", "CFmarch", "CFnmarch", "CFapu", "CFisblsm", "FBCF", "AOV")
+    c("CI", "EXPORTATIONS", "CFmarch", "CFnmarch", "CFapu", "CFisblsm", "FBCF", "AOV"),
+    map_feuille_cna, cna_ere_struct, type_prix = "CnaErECrt"
   )
   solde_cfmarch <- calculer_solde_ere(
     "CFmarch", methodes_ere, ind_ressources_trim,
     dplyr::bind_rows(emplois_non_solde, solde_vs),
-    c("CI", "EXPORTATIONS", "CFnmarch", "CFapu", "CFisblsm", "FBCF", "VS", "AOV")
+    c("CI", "EXPORTATIONS", "CFnmarch", "CFapu", "CFisblsm", "FBCF", "VS", "AOV"),
+    map_feuille_cna, cna_ere_struct, type_prix = "CnaErECrt"
   )
 
   emplois_crt <- dplyr::bind_rows(
@@ -135,6 +139,7 @@ executer_emplois_ere <- function(ere_res,
     dplyr::summarise(valeur = sum(valeur_composante, na.rm = TRUE), .groups = "drop")
   ind_prod_vpap_trim <- dplyr::rename(p1_ere_vol, valeur = P1_vol)
 
+  # Composantes benchmarkees directement par indicateur trimestriel
   emplois_bench_ch <- estimer_emplois_ere(
     map_feuille_cna, methodes_ere, cna_ere_struct,
     grille_trim, ind_ressources_vpap_trim,
@@ -148,14 +153,17 @@ executer_emplois_ere <- function(ere_res,
                                 Code_Produit, valeur_cal = exp_vpap), composante = "EXPORTATIONS"),
     emplois_bench_ch
   )
+  # Composantes residuelles : solde trimestriel puis benchmarking annuel CNA
   solde_vs_vol <- calculer_solde_ere(
     "VS", methodes_ere, ind_ressources_vpap_trim, emplois_non_solde_vol,
-    c("CI", "EXPORTATIONS", "CFmarch", "CFnmarch", "CFapu", "CFisblsm", "FBCF", "AOV")
+    c("CI", "EXPORTATIONS", "CFmarch", "CFnmarch", "CFapu", "CFisblsm", "FBCF", "AOV"),
+    map_feuille_cna, cna_ere_struct, type_prix = "CnaErECh"
   )
   solde_cfmarch_vol <- calculer_solde_ere(
     "CFmarch", methodes_ere, ind_ressources_vpap_trim,
     dplyr::bind_rows(emplois_non_solde_vol, solde_vs_vol),
-    c("CI", "EXPORTATIONS", "CFnmarch", "CFapu", "CFisblsm", "FBCF", "VS", "AOV")
+    c("CI", "EXPORTATIONS", "CFnmarch", "CFapu", "CFisblsm", "FBCF", "VS", "AOV"),
+    map_feuille_cna, cna_ere_struct, type_prix = "CnaErECh"
   )
 
   emplois_vol <- dplyr::bind_rows(

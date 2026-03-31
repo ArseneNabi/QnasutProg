@@ -50,5 +50,7 @@ trimestrielles (source) sur des contraintes annuelles (cibles), par \code{full_c
 conformément à la documentation \code{rjd3bench::cholette()}.
 \item La sortie est réalignée sur \code{(annee, trimestre)} et, si des périodes manquent,
 elles sont remplacées par la valeur source (comportement "pas de contrainte => pas de calage").
+\item Si aucune contrainte annuelle n'est disponible pour un code, la série source est
+conservée telle quelle avec \code{valeur_cal = valeur source}.
 }
 }

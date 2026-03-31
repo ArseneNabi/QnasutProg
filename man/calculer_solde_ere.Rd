@@ -9,7 +9,10 @@ calculer_solde_ere(
   methodes_ere,
   ind_ressources_trim,
   emplois_non_solde,
-  composantes_autres
+  composantes_autres,
+  map_feuille_cna,
+  cna_ere_struct,
+  type_prix = "CnaErECrt"
 )
 }
 \arguments{
@@ -22,11 +25,21 @@ calculer_solde_ere(
 \item{emplois_non_solde}{Emplois deja estimes (annee, trimestre, Code_Produit, valeur_cal, composante).}
 
 \item{composantes_autres}{Vecteur des composantes a soustraire pour obtenir le solde.}
+
+\item{map_feuille_cna}{Tibble feuille <-> composante_cna.}
+
+\item{cna_ere_struct}{Liste des composantes ERE annuelles.}
+
+\item{type_prix}{Type de prix pour la cible CNA : \code{"CnaErECrt"} (defaut)
+ou \code{"CnaErECh"}.}
 }
 \value{
 Tibble : annee, trimestre, Code_Produit, valeur_cal, composante.
 }
 \description{
-Solde = Ressources totales - somme des autres emplois deja estimes.
-Utilise pour les produits dont la composante emploi est residuelle.
+Construit d abord un indicateur trimestriel residuel :
+\deqn{solde_{trim} = ressources_{trim} - \sum autres\_emplois_{trim}}
+puis benchmarke ce solde trimestriel sur la cible annuelle CNA de la
+composante correspondante. Les annees sans cible CNA conservent le profil de
+l indicateur trimestriel (comportement standard de \code{benchmark_groupe()}).
 }

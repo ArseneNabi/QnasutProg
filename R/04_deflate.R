@@ -31,12 +31,14 @@ apply_price_to_bench <- function(df_bench, df_prix, operation = c("deflate", "in
 
   # --- 2. PR\u00c9PARATION DU BENCHMARKING (Logique conserv\u00e9e) ---
   # On extrait la cl\u00e9 de jointure depuis le full_code
+  if (!"full_code" %in% names(df_bench)) {
+    stop("La colonne 'full_code' est absente de df_bench dans apply_price_to_bench().")
+  }
   df_bench <- df_bench |>
     dplyr::mutate(
-      # Note : Assure-toi que la fonction extract_price_branch est bien disponible dans le package
-      branche_prix = extract_price_branch(full_code),
-      annee = as.numeric(annee),
-      trimestre = as.numeric(trimestre)
+      branche_prix = extract_price_branch(.data$full_code),
+      annee = as.numeric(.data$annee),
+      trimestre = as.numeric(.data$trimestre)
     )
 
   # --- 3. PR\u00c9PARATION DES PRIX (Ta logique de robustesse conserv\u00e9e) ---

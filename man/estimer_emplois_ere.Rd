@@ -38,4 +38,7 @@ Tibble consolide de toutes les composantes benchmarkees.
 \description{
 Applique estimer_composante_emploi() sur toutes les composantes de
 map_feuille_cna et retourne un tibble consolide.
+Les produits marques \code{Methode == "solde"} sont exclus ici et doivent
+etre traites ensuite via \code{calculer_solde_ere()} (solde trimestriel puis
+benchmarking sur cible annuelle CNA).
 }

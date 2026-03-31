@@ -1,0 +1,23 @@
+# =============================================================================
+# config.yml — Configuration des chemins pour ProgCntBFa
+# =============================================================================
+# INSTRUCTIONS :
+#   Adaptez uniquement les chemins ci-dessous à votre poste de travail.
+#   Ne modifiez pas les noms des clés (root_dir, data_hist_dir, etc.)
+#   Ce fichier doit rester dans le même dossier que ProgCntBFa.Rmd.
+# =============================================================================
+
+default:
+  # Répertoire principal de travail (contient les fichiers Excel et ce Rmd)
+  root_dir: "C:/CnaBfaScn08/CntBfaV4/07P_Outils/OutilCntBfa"
+
+  # Répertoire des données historiques TRE
+  data_hist_dir: "C:/CnaBfaScn08/CntBfaV4/07P_Outils/Data_Historique/TRE"
+
+  # Répertoire des nomenclatures (Map_Branches, Map_Produits, etc.)
+  nomen_dir: "C:/CnaBfaScn08/CntBfaV4/07P_Outils/Data_Historique/Nomenclatures"
+
+  # Bornes temporelles (à mettre à jour à chaque nouvelle campagne)
+  derniere_annee_definitif: 2022
+  annee_fin_projection: 2024
+

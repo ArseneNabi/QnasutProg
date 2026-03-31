@@ -17,7 +17,7 @@ Une liste nommée avec les paramètres de configuration.
 \description{
 Lit le fichier \code{config.yml} situé dans le répertoire courant (ou à un
 chemin spécifié) et retourne les paramètres de configuration sous forme de
-liste. Evite de coder en dur les chemins absolus dans les scripts.
+liste.
 }
 \details{
 Le fichier \code{config.yml} doit contenir une section \code{default:} avec

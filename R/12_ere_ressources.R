@@ -187,6 +187,37 @@ calculer_p2_ere <- function(p2_par_produit_n3, Map_Produits) {
 #' @export
 benchmarker_p1_ere <- function(p1_ere_crt, p1_ere_vol, cna_ere_struct,
                                p1_ere_ch = NULL) {
+  .restaurer_hors_cible <- function(bench_df, original_df, cna_tbl, valeur_col) {
+    lignes_hors_cible <- original_df |>
+      dplyr::distinct(Code_Produit, annee) |>
+      dplyr::anti_join(
+        cna_tbl |> dplyr::distinct(Code_Produit, annee),
+        by = c("Code_Produit", "annee")
+      )
+
+    if (nrow(lignes_hors_cible) == 0) {
+      return(bench_df)
+    }
+
+    bench_df |>
+      dplyr::left_join(
+        original_df |>
+          dplyr::semi_join(lignes_hors_cible, by = c("Code_Produit", "annee")) |>
+          dplyr::select(
+            annee, trimestre, Code_Produit,
+            original_val = dplyr::all_of(valeur_col)
+          ),
+        by = c("annee", "trimestre", "Code_Produit")
+      ) |>
+      dplyr::mutate(
+        !!valeur_col := dplyr::if_else(
+          !is.na(original_val),
+          original_val,
+          .data[[valeur_col]]
+        )
+      ) |>
+      dplyr::select(-original_val)
+  }
 
   .lire_cna_p1 <- function(type_prix) {
     pivoter_ere_long(
@@ -245,6 +276,8 @@ benchmarker_p1_ere <- function(p1_ere_crt, p1_ere_vol, cna_ere_struct,
 
   p1_crt_bench <- .bench_p1(p1_ere_crt, "P1_crt", cna_p1_crt, "crt")
   p1_ch_bench  <- .bench_p1(p1_ere_ch,  "P1_ch",  cna_p1_ch,  "ch")
+  p1_crt_bench <- .restaurer_hors_cible(p1_crt_bench, p1_ere_crt, cna_p1_crt, "P1_crt")
+  p1_ch_bench  <- .restaurer_hors_cible(p1_ch_bench,  p1_ere_ch,  cna_p1_ch,  "P1_ch")
   p1_vol_bench <- dplyr::inner_join(
     p1_crt_bench,
     p1_ch_bench,
@@ -255,6 +288,7 @@ benchmarker_p1_ere <- function(p1_ere_crt, p1_ere_vol, cna_ere_struct,
     dplyr::mutate(P1_vol = dechainer_valeurs(P1_crt, P1_ch, trim = TRUE)) |>
     dplyr::ungroup() |>
     dplyr::select(annee, trimestre, Code_Produit, P1_vol)
+  p1_vol_bench <- .restaurer_hors_cible(p1_vol_bench, p1_ere_vol, cna_p1_crt, "P1_vol")
 
   message("\u2705 P1 bench\u00e9e | produits : ",
           dplyr::n_distinct(p1_crt_bench$Code_Produit),
@@ -304,6 +338,37 @@ benchmarker_p1_ere <- function(p1_ere_crt, p1_ere_vol, cna_ere_struct,
 #' @export
 benchmarker_p2_ere <- function(p2_ere_crt, p2_ere_vol, cna_ere_struct,
                                p2_ere_ch = NULL) {
+  .restaurer_hors_cible <- function(bench_df, original_df, cna_tbl, valeur_col) {
+    lignes_hors_cible <- original_df |>
+      dplyr::distinct(Code_Produit, annee) |>
+      dplyr::anti_join(
+        cna_tbl |> dplyr::distinct(Code_Produit, annee),
+        by = c("Code_Produit", "annee")
+      )
+
+    if (nrow(lignes_hors_cible) == 0) {
+      return(bench_df)
+    }
+
+    bench_df |>
+      dplyr::left_join(
+        original_df |>
+          dplyr::semi_join(lignes_hors_cible, by = c("Code_Produit", "annee")) |>
+          dplyr::select(
+            annee, trimestre, Code_Produit,
+            original_val = dplyr::all_of(valeur_col)
+          ),
+        by = c("annee", "trimestre", "Code_Produit")
+      ) |>
+      dplyr::mutate(
+        !!valeur_col := dplyr::if_else(
+          !is.na(original_val),
+          original_val,
+          .data[[valeur_col]]
+        )
+      ) |>
+      dplyr::select(-original_val)
+  }
 
   .lire_cna_ci <- function(type_prix) {
     pivoter_ere_long(
@@ -364,6 +429,8 @@ benchmarker_p2_ere <- function(p2_ere_crt, p2_ere_vol, cna_ere_struct,
 
   p2_crt_bench <- .bench_ci(p2_ere_crt, "P2_crt", cna_ci_crt, "crt")
   p2_ch_bench  <- .bench_ci(p2_ere_ch,  "P2_ch",  cna_ci_ch,  "ch")
+  p2_crt_bench <- .restaurer_hors_cible(p2_crt_bench, p2_ere_crt, cna_ci_crt, "P2_crt")
+  p2_ch_bench  <- .restaurer_hors_cible(p2_ch_bench,  p2_ere_ch,  cna_ci_ch,  "P2_ch")
   p2_vol_bench <- dplyr::inner_join(
     p2_crt_bench,
     p2_ch_bench,
@@ -374,6 +441,7 @@ benchmarker_p2_ere <- function(p2_ere_crt, p2_ere_vol, cna_ere_struct,
     dplyr::mutate(P2_vol = dechainer_valeurs(P2_crt, P2_ch, trim = TRUE)) |>
     dplyr::ungroup() |>
     dplyr::select(annee, trimestre, Code_Produit, P2_vol)
+  p2_vol_bench <- .restaurer_hors_cible(p2_vol_bench, p2_ere_vol, cna_ci_crt, "P2_vol")
 
   message("\u2705 CI bench\u00e9e | produits crt : ",
           dplyr::n_distinct(p2_crt_bench$Code_Produit),

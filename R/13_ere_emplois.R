@@ -79,6 +79,31 @@ executer_emplois_ere <- function(ere_res,
   ind_apu_trim      <- .ind_apu(ind_crt, map_apu_cols)
   ind_apu_vpap_trim <- .ind_apu(ind_cst, map_apu_cols)
 
+  .normaliser_emploi_unique <- function(df, valeur_col, label_objet) {
+    cles <- c("annee", "trimestre", "Code_Produit", "composante")
+    valeur_sym <- rlang::sym(valeur_col)
+
+    df_unique <- dplyr::distinct(df)
+
+    doublons <- df_unique |>
+      dplyr::count(dplyr::across(dplyr::all_of(cles)), name = "n") |>
+      dplyr::filter(.data$n > 1)
+
+    if (nrow(doublons) == 0) {
+      return(df_unique)
+    }
+
+    message(
+      "\u26a0\ufe0f ", label_objet, " contient ", nrow(doublons),
+      " cles dupliquees sur (annee, trimestre, Code_Produit, composante). ",
+      "Agr\u00e9gation par somme avant jointure."
+    )
+
+    df_unique |>
+      dplyr::group_by(dplyr::across(dplyr::all_of(cles))) |>
+      dplyr::summarise(!!valeur_col := sum(!!valeur_sym, na.rm = TRUE), .groups = "drop")
+  }
+
   # ------------------------------------------------------------------
   # A. EMPLOIS COURANTS
   # ------------------------------------------------------------------
@@ -128,6 +153,8 @@ executer_emplois_ere <- function(ere_res,
   ) |>
     dplyr::select(annee, trimestre, Code_Produit, composante, valeur_cal) |>
     dplyr::arrange(composante, Code_Produit, annee, trimestre)
+
+  emplois_crt <- .normaliser_emploi_unique(emplois_crt, "valeur_cal", "emplois_crt")
 
   # ------------------------------------------------------------------
   # B. EMPLOIS EN VOLUME CHAÎNÉ
@@ -180,6 +207,8 @@ executer_emplois_ere <- function(ere_res,
   ) |>
     dplyr::select(annee, trimestre, Code_Produit, composante, valeur_ch = valeur_cal) |>
     dplyr::arrange(composante, Code_Produit, annee, trimestre)
+
+  emplois_vol <- .normaliser_emploi_unique(emplois_vol, "valeur_ch", "emplois_vol")
 
   # ------------------------------------------------------------------
   # C. VPAP PAR DÉCHAÎNAGE

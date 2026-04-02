@@ -8,8 +8,8 @@ NULL
 
 #' Assembler les emplois ERE en courant, volume chaîné et VPAP
 #'
-#' Encapsule les sections 2.5 et 2.7 du programme : estimation des emplois
-#' ERE par méthode de benchmarking ou de solde, assemblage courant et chaîné,
+#' Estimation des emplois
+#' ERE par méthode de benchmarking, assemblage courant et chaîné,
 #' et calcul de la VPAP par déchaînage.
 #'
 #' La logique de chaque composante emploi (CFmarch, CFnmarch, CFapu, CFisblsm,
@@ -84,31 +84,6 @@ executer_emplois_ere <- function(ere_res,
   ind_apu_trim      <- .ind_apu(ind_crt, map_apu_cols)
   ind_apu_vpap_trim <- .ind_apu(ind_cst, map_apu_cols)
 
-  .normaliser_emploi_unique <- function(df, valeur_col, label_objet) {
-    cles <- c("annee", "trimestre", "Code_Produit", "composante")
-    valeur_sym <- rlang::sym(valeur_col)
-
-    df_unique <- dplyr::distinct(df)
-
-    doublons <- df_unique |>
-      dplyr::count(dplyr::across(dplyr::all_of(cles)), name = "n") |>
-      dplyr::filter(.data$n > 1)
-
-    if (nrow(doublons) == 0) {
-      return(df_unique)
-    }
-
-    message(
-      "\u26a0\ufe0f ", label_objet, " contient ", nrow(doublons),
-      " cles dupliquees sur (annee, trimestre, Code_Produit, composante). ",
-      "Agr\u00e9gation par somme avant jointure."
-    )
-
-    df_unique |>
-      dplyr::group_by(dplyr::across(dplyr::all_of(cles))) |>
-      dplyr::summarise(!!valeur_col := sum(!!valeur_sym, na.rm = TRUE), .groups = "drop")
-  }
-
   # ------------------------------------------------------------------
   # A. EMPLOIS COURANTS
   # ------------------------------------------------------------------
@@ -159,8 +134,6 @@ executer_emplois_ere <- function(ere_res,
   ) |>
     dplyr::select(annee, trimestre, Code_Produit, composante, valeur_cal)
 
-  emplois_crt <- .normaliser_emploi_unique(emplois_crt, "valeur_cal", "emplois_crt")
-
   # ------------------------------------------------------------------
   # B. EMPLOIS VOLUME
   # ------------------------------------------------------------------
@@ -203,7 +176,11 @@ executer_emplois_ere <- function(ere_res,
     dplyr::mutate(dplyr::rename(p2_ere_vol, valeur_cal = P2_vol), composante = "CI"),
     dplyr::mutate(dplyr::select(cnt_exp_final, annee, trimestre,
                                 Code_Produit, valeur_cal = exp_vpap), composante = "EXPORTATIONS"),
-    emplois_bench_ch,
+    emplois_bench_ch |>
+      dplyr::filter(
+        !(composante == "VS" & Code_Produit %in% prods_solde_vs),
+        !(composante == "CFmarch" & Code_Produit %in% prods_solde_cfmarch)
+      ),
     solde_vs_vol,
     solde_cfmarch_vol
   ) |>
@@ -255,8 +232,6 @@ executer_emplois_ere <- function(ere_res,
 
   emplois_crt <- .normaliser_emploi_unique(emplois_crt, "emplois_crt")
   emplois_vol <- .normaliser_emploi_unique(emplois_vol, "emplois_vol")
-
-  emplois_vol <- .normaliser_emploi_unique(emplois_vol, "valeur_ch", "emplois_vol")
 
   # ------------------------------------------------------------------
   # C. VPAP

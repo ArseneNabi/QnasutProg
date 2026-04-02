@@ -12,45 +12,67 @@ benchmark_groupe(
   rho = 1,
   lambda = 1,
   bias = "None",
-  conversion = "Sum"
+  conversion = "Sum",
+  garder_sans_cible = FALSE,
+  codes_negatifs_autorises = character(0)
 )
 }
 \arguments{
 \item{df_source}{Data frame/tibble source trimestriel. Doit contenir :
-\code{full_code}, \code{annee}, \code{trimestre}, et la colonne \code{value_col}.
-Si \code{type_filter} est fourni, \code{df_source} doit aussi contenir \code{type_ind}.}
+\code{full_code}, \code{annee}, \code{trimestre}, et la colonne
+\code{value_col}. Si \code{type_filter} est fourni, doit aussi contenir
+\code{type_ind}.}
 
 \item{df_target}{Data frame/tibble des contraintes annuelles. Doit contenir :
 \code{full_code}, \code{annee}, \code{valeur}.}
 
-\item{type_filter}{Filtre optionnel appliqué à \code{df_source$type_ind}. Si \code{NULL}, pas de filtre.}
+\item{type_filter}{Filtre optionnel applique a \code{df_source$type_ind}.
+Si \code{NULL}, pas de filtre.}
 
-\item{value_col}{Nom de la colonne dans \code{df_source} qui contient la série à benchmarquer.}
+\item{value_col}{Nom de la colonne dans \code{df_source} a benchmarquer.
+Defaut : \code{"valeur"}.}
 
-\item{rho}{Paramètre de lissage de Cholette (entre 0 et 1). Par défaut 1.}
+\item{rho}{Parametre de lissage de Cholette (entre 0 et 1). Defaut 1.}
 
-\item{lambda}{Paramètre du modèle d'ajustement (1 proportionnel, 0 additif). Par défaut 1.}
+\item{lambda}{Parametre du modele (1 proportionnel, 0 additif). Defaut 1.}
 
-\item{bias}{Biais ("None", "Additive", "Multiplicative"). Par défaut "None".}
+\item{bias}{Biais ("None", "Additive", "Multiplicative"). Defaut "None".}
 
-\item{conversion}{Règle d'agrégation ("Sum" recommandé pour des flux). Par défaut "Sum".}
+\item{conversion}{Regle d'agregation ("Sum" pour des flux). Defaut "Sum".}
+
+\item{garder_sans_cible}{Logique. Si \code{TRUE}, les codes sans aucune
+contrainte annuelle sont conserves dans le resultat avec
+\code{valeur_cal = valeur source}. Si \code{FALSE} (defaut strict), ils
+sont exclus du resultat.}
+
+\item{codes_negatifs_autorises}{Vecteur de \code{full_code} pour lesquels
+des valeurs negatives sont acceptables (variations de stocks "VS").
+Pour ces codes, le resultat Cholette est conserve meme s'il contient des
+negatifs. Defaut : \code{character(0)}.}
 }
 \value{
-Un tibble contenant les lignes de \code{df_source} traitées avec une colonne \code{valeur_cal}.
+Un tibble contenant les lignes de \code{df_source} traitees avec
+une colonne \code{valeur_cal} et une colonne \code{methode_cal} indiquant
+la methode utilisee : \code{"cholette"}, \code{"distribution_plate"} ou
+\code{"source"}.
 }
 \description{
-Applique la méthode de Cholette (\pkg{rjd3bench}) pour benchmarquer des séries
+Applique la methode de Cholette (\pkg{rjd3bench}) pour benchmarquer des series
 trimestrielles (source) sur des contraintes annuelles (cibles), par \code{full_code}.
 }
 \details{
-\itemize{
-\item \code{s} (trimestriel) est construit à partir de \code{df_source}.
-\item \code{t} (annuel) est construit à partir de \code{df_target}.
-\item \code{t} peut être plus court que \code{s} (cas "pas de benchmark encore" pour les années récentes),
-conformément à la documentation \code{rjd3bench::cholette()}.
-\item La sortie est réalignée sur \code{(annee, trimestre)} et, si des périodes manquent,
-elles sont remplacées par la valeur source (comportement "pas de contrainte => pas de calage").
-\item Si aucune contrainte annuelle n'est disponible pour un code, la série source est
-conservée telle quelle avec \code{valeur_cal = valeur source}.
+La fonction applique la logique de repli suivante pour chaque code :
+\enumerate{
+\item Benchmarking Cholette (lambda = 1, proportionnel).
+\item Si le resultat contient des valeurs negatives ET que le code n'est
+pas dans \code{codes_negatifs_autorises} : repli sur la
+\strong{distribution plate} (cible annuelle / 4 par trimestre).
+Ce cas survient typiquement quand la serie cible annuelle contient des
+zeros intercales (ex. : 0, 55000, 0, 0, 0) que Cholette ne peut pas
+distribuer sans produire de negatifs.
+\item Si Cholette echoue (erreur R), tentative avec lambda = 0 (additif),
+puis repli distribution plate en dernier recours.
+\item Si aucune cible annuelle n'est disponible : le code est exclu du
+resultat (comportement strict), sauf si \code{garder_sans_cible = TRUE}.
 }
 }

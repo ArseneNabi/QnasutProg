@@ -57,8 +57,8 @@ Liste à trois éléments :
 }
 }
 \description{
-Encapsule les sections 2.5 et 2.7 du programme : estimation des emplois
-ERE par méthode de benchmarking ou de solde, assemblage courant et chaîné,
+Estimation des emplois
+ERE par méthode de benchmarking, assemblage courant et chaîné,
 et calcul de la VPAP par déchaînage.
 }
 \details{

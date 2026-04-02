@@ -302,3 +302,27 @@ emplois_ere_vol      <- ere_emp$emplois_vol
 emplois_ere_vpap     <- ere_emp$emplois_vpap
 ```
 
+# 3. Equilibrage CNT — Impots, Taxes et Subventions Nets
+
+```{r impots-taxes-pipeline}
+impots_pipeline <- executer_pipeline_impots_taxes(
+  root_dir                 = root_dir,
+  donnees                  = donnees,
+  ere_res                  = ere_res,
+  derniere_annee_cna       = derniere_annee_definitif,
+  annee_fin_proj           = annee_fin_projection,
+  codes_negatifs_autorises = character(0),
+  export_excel             = TRUE
+)
+
+imp_cna          <- impots_pipeline$imp_cna
+ind_imp_extraits <- impots_pipeline$ind_imp_extraits
+ind_imp_ere      <- impots_pipeline$ind_imp_ere
+imp_bench        <- impots_pipeline$imp_bench
+cnt_imp_net_crt  <- impots_pipeline$cnt_imp_net_crt
+cnt_imp_net_ch   <- impots_pipeline$cnt_imp_net_ch
+cnt_imp_net_vpap <- impots_pipeline$cnt_imp_net_vpap
+verif_crt        <- impots_pipeline$verif_crt
+alertes_imp      <- impots_pipeline$alertes_imp
+path_export_imp  <- impots_pipeline$path_export_imp
+```

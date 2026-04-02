@@ -373,3 +373,148 @@ benchmarker_impots_taxes <- function(ind_imp_crt,
     ind_ere_source   = ind_imp_ere
   )
 }
+
+
+#' Executer le pipeline complet d'equilibrage des impots/taxes nets
+#'
+#' Encapsule l'ancienne section 3 du Rmd :
+#' import CNA impots, extraction des indicateurs, calcul de l'indicateur
+#' ERE, benchmarking courant/chaine/VPAP, verification annuelle des
+#' contraintes et export Excel optionnel.
+#'
+#' @param root_dir Repertoire racine contenant le fichier `R_CNA.xlsx`.
+#' @param donnees Liste retournee par `charger_donnees_cnt()`
+#'   (au minimum `ind_crt` et `ind_cst`).
+#' @param ere_res Liste retournee par `executer_ressources_ere()`
+#'   (au minimum `ressources_crt` et `ressources_vpap`).
+#' @param derniere_annee_cna Derniere annee des CNA definitifs.
+#' @param annee_fin_proj Annee de fin de projection.
+#' @param codes_negatifs_autorises Vecteur de codes pour lesquels les
+#'   negatifs Cholette sont acceptes.
+#' @param export_excel Booleen, `TRUE` pour exporter un fichier Excel.
+#'
+#' @return Liste avec au moins :
+#' \describe{
+#'   \item{imp_cna}{Cibles CNA impots (`ImpCrt`, `ImpVol`, `ImpCh`).}
+#'   \item{ind_imp_extraits}{Indicateurs extraits depuis `donnees`.}
+#'   \item{ind_imp_ere}{Indicateur impots calcule depuis ERE.}
+#'   \item{imp_bench}{Sortie complete de `benchmarker_impots_taxes()`.}
+#'   \item{cnt_imp_net_crt}{Serie benchmarkee en courant.}
+#'   \item{cnt_imp_net_ch}{Serie benchmarkee en chaine.}
+#'   \item{cnt_imp_net_vpap}{Serie dechainee VPAP.}
+#'   \item{verif_crt}{Verification annuelle courant (benchmark vs CNA).}
+#'   \item{alertes_imp}{Sous-ensemble des ecarts annuels non nuls.}
+#'   \item{path_export_imp}{Chemin du fichier Excel exporte, sinon `NULL`.}
+#' }
+#' @export
+executer_pipeline_impots_taxes <- function(root_dir,
+                                           donnees,
+                                           ere_res,
+                                           derniere_annee_cna,
+                                           annee_fin_proj,
+                                           codes_negatifs_autorises = character(0),
+                                           export_excel = TRUE) {
+
+  message("\u25b6 Pipeline Impots/Taxes nets : demarrage")
+
+  path_cna <- file.path(root_dir, "R_CNA.xlsx")
+  imp_cna <- importer_cna_impots(path_cna)
+
+  ind_imp_extraits <- extraire_ind_impots(
+    ind_crt = donnees$ind_crt,
+    ind_cst = donnees$ind_cst
+  )
+
+  ind_imp_ere <- calculer_ind_impots_depuis_ere(
+    ressources_crt  = ere_res$ressources_crt,
+    ressources_vpap = ere_res$ressources_vpap
+  )
+
+  imp_bench <- benchmarker_impots_taxes(
+    ind_imp_crt = ind_imp_extraits$ind_imp_crt,
+    ind_imp_ere = ind_imp_ere,
+    imp_cna = imp_cna,
+    derniere_annee_cna = derniere_annee_cna,
+    annee_fin_proj = annee_fin_proj,
+    codes_negatifs_autorises = codes_negatifs_autorises
+  )
+
+  cnt_imp_net_crt  <- imp_bench$cnt_imp_net_crt
+  cnt_imp_net_ch   <- imp_bench$cnt_imp_net_ch
+  cnt_imp_net_vpap <- imp_bench$cnt_imp_net_vpap
+
+  types_imp <- c("Impots_Nets", "Impots_nets", "impots_nets", "Impots nets")
+
+  cible_crt <- imp_cna$imp_crt |>
+    dplyr::filter(trimws(.data$type_ind) %in% types_imp) |>
+    dplyr::group_by(.data$annee, .data$full_code) |>
+    dplyr::summarise(cible_cna = sum(.data$valeur, na.rm = TRUE), .groups = "drop")
+
+  somme_trim <- cnt_imp_net_crt |>
+    dplyr::group_by(.data$annee, .data$full_code) |>
+    dplyr::summarise(
+      somme_trim_bench = sum(.data$valeur_cal, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  verif_crt <- dplyr::full_join(
+    cible_crt,
+    somme_trim,
+    by = c("annee", "full_code")
+  ) |>
+    dplyr::mutate(
+      dplyr::across(c(.data$cible_cna, .data$somme_trim_bench),
+                    ~ tidyr::replace_na(.x, 0)),
+      ecart = .data$somme_trim_bench - .data$cible_cna,
+      ecart_abs = abs(.data$ecart),
+      ecart_rel_pct = dplyr::if_else(
+        .data$cible_cna == 0,
+        NA_real_,
+        100 * .data$ecart / .data$cible_cna
+      )
+    ) |>
+    dplyr::arrange(.data$full_code, .data$annee)
+
+  alertes_imp <- verif_crt |>
+    dplyr::filter(.data$ecart_abs > 1e-8)
+
+  message("\u2705 Verification annuelle impots (courant) : ",
+          nrow(verif_crt), " lignes | alertes : ", nrow(alertes_imp))
+
+  path_export_imp <- NULL
+  if (isTRUE(export_excel)) {
+    path_export_imp <- file.path(
+      root_dir,
+      paste0("Impots_Taxes_Nets_", format(Sys.Date(), "%Y%m%d"), ".xlsx")
+    )
+
+    writexl::write_xlsx(
+      list(
+        imp_cna_crt       = imp_cna$imp_crt,
+        ind_imp_extraits  = ind_imp_extraits$ind_imp_crt,
+        ind_imp_ere       = ind_imp_ere,
+        cnt_imp_net_crt   = cnt_imp_net_crt,
+        cnt_imp_net_ch    = cnt_imp_net_ch,
+        cnt_imp_net_vpap  = cnt_imp_net_vpap,
+        verif_crt         = verif_crt,
+        alertes_imp       = alertes_imp
+      ),
+      path = path_export_imp
+    )
+
+    message("\u2705 Export impots/taxes : ", path_export_imp)
+  }
+
+  list(
+    imp_cna = imp_cna,
+    ind_imp_extraits = ind_imp_extraits,
+    ind_imp_ere = ind_imp_ere,
+    imp_bench = imp_bench,
+    cnt_imp_net_crt = cnt_imp_net_crt,
+    cnt_imp_net_ch = cnt_imp_net_ch,
+    cnt_imp_net_vpap = cnt_imp_net_vpap,
+    verif_crt = verif_crt,
+    alertes_imp = alertes_imp,
+    path_export_imp = path_export_imp
+  )
+}

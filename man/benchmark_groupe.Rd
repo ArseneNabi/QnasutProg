@@ -14,7 +14,8 @@ benchmark_groupe(
   bias = "None",
   conversion = "Sum",
   garder_sans_cible = FALSE,
-  codes_negatifs_autorises = character(0)
+  codes_negatifs_autorises = character(0),
+  tol_contrainte = 0.01
 )
 }
 \arguments{
@@ -46,33 +47,44 @@ contrainte annuelle sont conserves dans le resultat avec
 sont exclus du resultat.}
 
 \item{codes_negatifs_autorises}{Vecteur de \code{full_code} pour lesquels
-des valeurs negatives sont acceptables (variations de stocks "VS").
-Pour ces codes, le resultat Cholette est conserve meme s'il contient des
-negatifs. Defaut : \code{character(0)}.}
+des valeurs negatives sont acceptables (variations de stocks).
+Defaut : \code{character(0)}.}
+
+\item{tol_contrainte}{Tolerance relative pour verifier que Cholette a bien
+applique les contraintes annuelles. Si l'ecart max entre la somme annuelle
+calee et la cible depasse ce seuil, la serie est consideree non calee et
+le repli est active. Defaut : \code{0.01} (1 \%).}
 }
 \value{
-Un tibble contenant les lignes de \code{df_source} traitees avec
-une colonne \code{valeur_cal} et une colonne \code{methode_cal} indiquant
-la methode utilisee : \code{"cholette"}, \code{"distribution_plate"} ou
-\code{"source"}.
+Un tibble contenant les lignes de \code{df_source} traitees avec :
+\itemize{
+\item \code{valeur_cal} : serie benchmarkee.
+\item \code{methode_cal} : methode utilisee (\code{"cholette"},
+\code{"distribution_plate"} ou \code{"source"}).
+}
 }
 \description{
 Applique la methode de Cholette (\pkg{rjd3bench}) pour benchmarquer des series
 trimestrielles (source) sur des contraintes annuelles (cibles), par \code{full_code}.
 }
 \details{
-La fonction applique la logique de repli suivante pour chaque code :
+La serie calee suit les mouvements trimestriels de l'indicateur source tout
+en respectant les contraintes annuelles CNA (principe de Cholette).
+
+Logique de repli par priorite decroissante :
 \enumerate{
-\item Benchmarking Cholette (lambda = 1, proportionnel).
-\item Si le resultat contient des valeurs negatives ET que le code n'est
-pas dans \code{codes_negatifs_autorises} : repli sur la
-\strong{distribution plate} (cible annuelle / 4 par trimestre).
-Ce cas survient typiquement quand la serie cible annuelle contient des
-zeros intercales (ex. : 0, 55000, 0, 0, 0) que Cholette ne peut pas
-distribuer sans produire de negatifs.
-\item Si Cholette echoue (erreur R), tentative avec lambda = 0 (additif),
-puis repli distribution plate en dernier recours.
-\item Si aucune cible annuelle n'est disponible : le code est exclu du
-resultat (comportement strict), sauf si \code{garder_sans_cible = TRUE}.
+\item Cholette proportionnel (lambda = 1, rho = 1) : \code{rjd3bench::cholette()}
+retourne directement un objet \code{ts}. On verifie que ce \code{ts}
+respecte bien les contraintes annuelles (somme par annee proche de la cible).
+Si le resultat est identique a l'indicateur source (JARs defectueux ou
+contrainte non appliquee), on bascule sur le repli.
+\item Cholette additif (lambda = 0) si le precedent n'a pas modifie la serie.
+\item Distribution plate (cible annuelle / 4) si :
+(a) Cholette echoue completement (erreur R/Java),
+(b) le resultat Cholette contient des negatifs non autorises, ou
+(c) le resultat est identique a l'indicateur source apres les deux
+tentatives Cholette (serie cible avec zeros intercales).
+\item Si aucune cible annuelle : code exclu du resultat (comportement strict),
+sauf si \code{garder_sans_cible = TRUE}.
 }
 }

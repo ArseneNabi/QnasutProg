@@ -5,19 +5,24 @@
 #' trimestrielles (source) sur des contraintes annuelles (cibles), par \code{full_code}.
 #'
 #' @details
-#' La fonction applique la logique de repli suivante pour chaque code :
+#' La serie calee suit les mouvements trimestriels de l'indicateur source tout
+#' en respectant les contraintes annuelles CNA (principe de Cholette).
+#'
+#' Logique de repli par priorite decroissante :
 #' \enumerate{
-#'   \item Benchmarking Cholette (lambda = 1, proportionnel).
-#'   \item Si le resultat contient des valeurs negatives ET que le code n'est
-#'     pas dans \code{codes_negatifs_autorises} : repli sur la
-#'     \strong{distribution plate} (cible annuelle / 4 par trimestre).
-#'     Ce cas survient typiquement quand la serie cible annuelle contient des
-#'     zeros intercales (ex. : 0, 55000, 0, 0, 0) que Cholette ne peut pas
-#'     distribuer sans produire de negatifs.
-#'   \item Si Cholette echoue (erreur R), tentative avec lambda = 0 (additif),
-#'     puis repli distribution plate en dernier recours.
-#'   \item Si aucune cible annuelle n'est disponible : le code est exclu du
-#'     resultat (comportement strict), sauf si \code{garder_sans_cible = TRUE}.
+#'   \item Cholette proportionnel (lambda = 1, rho = 1) : \code{rjd3bench::cholette()}
+#'     retourne directement un objet \code{ts}. On verifie que ce \code{ts}
+#'     respecte bien les contraintes annuelles (somme par annee proche de la cible).
+#'     Si le resultat est identique a l'indicateur source (JARs defectueux ou
+#'     contrainte non appliquee), on bascule sur le repli.
+#'   \item Cholette additif (lambda = 0) si le precedent n'a pas modifie la serie.
+#'   \item Distribution plate (cible annuelle / 4) si :
+#'     (a) Cholette echoue completement (erreur R/Java),
+#'     (b) le resultat Cholette contient des negatifs non autorises, ou
+#'     (c) le resultat est identique a l'indicateur source apres les deux
+#'         tentatives Cholette (serie cible avec zeros intercales).
+#'   \item Si aucune cible annuelle : code exclu du resultat (comportement strict),
+#'     sauf si \code{garder_sans_cible = TRUE}.
 #' }
 #'
 #' @param df_source Data frame/tibble source trimestriel. Doit contenir :
@@ -39,14 +44,19 @@
 #'   \code{valeur_cal = valeur source}. Si \code{FALSE} (defaut strict), ils
 #'   sont exclus du resultat.
 #' @param codes_negatifs_autorises Vecteur de \code{full_code} pour lesquels
-#'   des valeurs negatives sont acceptables (variations de stocks "VS").
-#'   Pour ces codes, le resultat Cholette est conserve meme s'il contient des
-#'   negatifs. Defaut : \code{character(0)}.
+#'   des valeurs negatives sont acceptables (variations de stocks).
+#'   Defaut : \code{character(0)}.
+#' @param tol_contrainte Tolerance relative pour verifier que Cholette a bien
+#'   applique les contraintes annuelles. Si l'ecart max entre la somme annuelle
+#'   calee et la cible depasse ce seuil, la serie est consideree non calee et
+#'   le repli est active. Defaut : \code{0.01} (1 %).
 #'
-#' @return Un tibble contenant les lignes de \code{df_source} traitees avec
-#'   une colonne \code{valeur_cal} et une colonne \code{methode_cal} indiquant
-#'   la methode utilisee : \code{"cholette"}, \code{"distribution_plate"} ou
-#'   \code{"source"}.
+#' @return Un tibble contenant les lignes de \code{df_source} traitees avec :
+#'   \itemize{
+#'     \item \code{valeur_cal} : serie benchmarkee.
+#'     \item \code{methode_cal} : methode utilisee (\code{"cholette"},
+#'       \code{"distribution_plate"} ou \code{"source"}).
+#'   }
 #'
 #' @export
 benchmark_groupe <- function(df_source,
@@ -58,7 +68,8 @@ benchmark_groupe <- function(df_source,
                              bias                     = "None",
                              conversion               = "Sum",
                              garder_sans_cible        = FALSE,
-                             codes_negatifs_autorises = character(0)) {
+                             codes_negatifs_autorises = character(0),
+                             tol_contrainte           = 0.01) {
 
   # ------------------------------------------------------------------
   # Verifications minimales
@@ -69,91 +80,141 @@ benchmark_groupe <- function(df_source,
   manquantes_source <- setdiff(cols_source_requises, names(df_source))
   manquantes_target <- setdiff(cols_target_requises, names(df_target))
 
-  if (length(manquantes_source) > 0) {
-    stop(
-      "Colonnes absentes de `df_source` dans benchmark_groupe() : ",
-      paste(manquantes_source, collapse = ", "),
-      call. = FALSE
-    )
-  }
-  if (length(manquantes_target) > 0) {
-    stop(
-      "Colonnes absentes de `df_target` dans benchmark_groupe() : ",
-      paste(manquantes_target, collapse = ", "),
-      call. = FALSE
-    )
-  }
+  if (length(manquantes_source) > 0)
+    stop("Colonnes absentes de `df_source` dans benchmark_groupe() : ",
+         paste(manquantes_source, collapse = ", "), call. = FALSE)
+  if (length(manquantes_target) > 0)
+    stop("Colonnes absentes de `df_target` dans benchmark_groupe() : ",
+         paste(manquantes_target, collapse = ", "), call. = FALSE)
 
   # ------------------------------------------------------------------
   # Filtrage eventuel par type d'indicateur
   # ------------------------------------------------------------------
   if (!is.null(type_filter)) {
-    if (length(type_filter) != 1 || is.na(type_filter) || trimws(type_filter) == "") {
-      stop("`type_filter` doit etre une chaine non vide lorsqu'il est fourni.",
-           call. = FALSE)
-    }
-    if (!"type_ind" %in% names(df_source)) {
-      stop("La colonne `type_ind` est absente de `df_source` dans benchmark_groupe().",
-           call. = FALSE)
-    }
+    if (length(type_filter) != 1 || is.na(type_filter) ||
+        trimws(type_filter) == "")
+      stop("`type_filter` doit etre une chaine non vide.", call. = FALSE)
+    if (!"type_ind" %in% names(df_source))
+      stop("Colonne `type_ind` absente de `df_source`.", call. = FALSE)
 
-    df_source   <- dplyr::mutate(df_source,
-                                 type_ind = trimws(as.character(.data$type_ind)))
+    df_source   <- dplyr::mutate(
+      df_source, type_ind = trimws(as.character(.data$type_ind)))
     type_filter <- trimws(as.character(type_filter))
-    valeurs_dispo <- sort(unique(df_source$type_ind))
+    vals_dispo  <- sort(unique(df_source$type_ind))
+    df_source   <- dplyr::filter(df_source, .data$type_ind == type_filter)
 
-    df_source <- dplyr::filter(df_source, .data$type_ind == type_filter)
-
-    if (nrow(df_source) == 0) {
-      stop(
-        "Aucune ligne trouvee dans `df_source` pour type_filter = '", type_filter,
-        "'. Valeurs disponibles : ",
-        paste(valeurs_dispo, collapse = ", "),
-        call. = FALSE
-      )
-    }
+    if (nrow(df_source) == 0)
+      stop("Aucune ligne pour type_filter = '", type_filter,
+           "'. Valeurs disponibles : ", paste(vals_dispo, collapse = ", "),
+           call. = FALSE)
   }
 
   # ------------------------------------------------------------------
-  # Helper : convertir un ts trimestriel en data.frame
+  # Helper : appeler cholette() et recuperer le ts resultant
+  #
+  # rjd3bench::cholette() retourne directement un objet ts (vecteur
+  # numerique avec attributs start/frequency) quand rjd3jars est
+  # correctement installe. On verifie que c'est bien un ts valide.
   # ------------------------------------------------------------------
-  tsq_to_df <- function(x_ts, value_name = "value") {
-    tt <- stats::time(x_ts)
-    yy <- floor(tt + 1e-9)
-    qq <- round((tt - yy) * 4) + 1
-    out <- data.frame(annee = as.integer(yy), trimestre = as.integer(qq),
-                      stringsAsFactors = FALSE)
-    out[[value_name]] <- as.numeric(x_ts)
-    out
+  appeler_cholette <- function(s_ts, t_ts, lam) {
+    res <- tryCatch(
+      rjd3bench::cholette(s = s_ts, t = t_ts,
+                          rho = rho, lambda = lam,
+                          bias = bias, conversion = conversion),
+      error = function(e) NULL
+    )
+    # rjd3bench retourne un ts directement
+    if (!is.null(res) && inherits(res, "ts") && length(res) == length(s_ts))
+      return(res)
+    # Securite : si c'est une liste (versions futures eventuelles)
+    if (is.list(res)) {
+      for (nm in c("benchmarked", "result", "series", "s")) {
+        if (!is.null(res[[nm]]) && inherits(res[[nm]], "ts"))
+          return(res[[nm]])
+      }
+    }
+    NULL
+  }
+
+  # ------------------------------------------------------------------
+  # Helper : verifier que Cholette a bien applique les contraintes
+  # On compare la somme annuelle calee a la cible pour chaque annee
+  # couverte par t_filtre. Si l'ecart relatif max depasse tol_contrainte,
+  # la serie est consideree non calee (JARs defectueux).
+  # ------------------------------------------------------------------
+  contraintes_respectees <- function(bench_ts, t_filtre) {
+    ecarts <- vapply(t_filtre$annee, function(an) {
+      trim_an <- stats::window(
+        bench_ts,
+        start = c(an, 1),
+        end   = c(an, 4),
+        extend = TRUE
+      )
+      somme  <- sum(trim_an, na.rm = TRUE)
+      cible  <- t_filtre$valeur[t_filtre$annee == an]
+      if (length(cible) != 1 || cible == 0) return(0)
+      abs(somme - cible) / abs(cible)
+    }, numeric(1))
+    max(ecarts, na.rm = TRUE) <= tol_contrainte
   }
 
   # ------------------------------------------------------------------
   # Helper : distribution plate
-  # Repartit la valeur annuelle CNA en 4 trimestres egaux.
-  # Pour les annees sans cible (projection), repete la derniere
+  # Repartit chaque valeur annuelle CNA en 4 trimestres egaux.
+  # Pour les annees sans cible (projection), reconduit la derniere
   # valeur CNA connue / 4.
   # ------------------------------------------------------------------
   distribuer_plate <- function(s_data, t_data) {
-
-    annees_source <- sort(unique(s_data$annee))
-
+    annees_src     <- sort(unique(s_data$annee))
     derniere_cible <- if (nrow(t_data) > 0)
-      t_data$valeur[which.max(t_data$annee)] / 4
-    else
-      0
+      t_data$valeur[which.max(t_data$annee)] / 4 else 0
 
-    val_trim <- vapply(annees_source, function(an) {
-      cible_an <- t_data$valeur[t_data$annee == an]
-      if (length(cible_an) == 1) cible_an / 4 else derniere_cible
-    }, numeric(1))
+    val_trim <- vapply(annees_src, function(an) {
+      v <- t_data$valeur[t_data$annee == an]
+      if (length(v) == 1L) v / 4 else derniere_cible
+    }, numeric(1L))
 
     s_data |>
       dplyr::mutate(
-        .val_ann    = val_trim[match(.data$annee, annees_source)],
-        valeur_cal  = .data$.val_ann,
+        .v = val_trim[match(.data$annee, annees_src)],
+        valeur_cal  = .data$.v,
         methode_cal = "distribution_plate"
       ) |>
-      dplyr::select(-.data$.val_ann)
+      dplyr::select(-.data$.v)
+  }
+
+  # ------------------------------------------------------------------
+  # Helper : convertir ts en data.frame (annee, trimestre, valeur_cal)
+  # et realigner sur les periodes reelles de s_data
+  # ------------------------------------------------------------------
+  ts_vers_df <- function(bench_ts, s_data, val_source) {
+    tt <- stats::time(bench_ts)
+    yy <- floor(tt + 1e-9)
+    qq <- round((tt - yy) * 4) + 1
+    bench_df <- data.frame(
+      annee     = as.integer(yy),
+      trimestre = as.integer(qq),
+      valeur_cal = as.numeric(bench_ts),
+      stringsAsFactors = FALSE
+    )
+    # Jointure sur les periodes reelles de s_data
+    src_df <- data.frame(
+      annee      = s_data$annee,
+      trimestre  = s_data$trimestre,
+      valeur_src = val_source,
+      stringsAsFactors = FALSE
+    )
+    merged <- merge(src_df, bench_df, by = c("annee", "trimestre"),
+                    all.x = TRUE, sort = FALSE)
+    merged <- merged[order(match(
+      paste(merged$annee, merged$trimestre),
+      paste(src_df$annee,  src_df$trimestre)
+    )), ]
+    # Periodes sans contrainte (projection) : repli sur source
+    merged$valeur_cal <- ifelse(
+      is.na(merged$valeur_cal), merged$valeur_src, merged$valeur_cal
+    )
+    merged$valeur_cal
   }
 
   # ------------------------------------------------------------------
@@ -169,7 +230,7 @@ benchmark_groupe <- function(df_source,
       dplyr::filter(.data$full_code == code) |>
       dplyr::arrange(.data$annee, .data$trimestre)
 
-    if (nrow(s_data) == 0) next
+    if (nrow(s_data) == 0L) next
 
     t_data <- df_target |>
       dplyr::filter(.data$full_code == code) |>
@@ -178,131 +239,83 @@ benchmark_groupe <- function(df_source,
     # ----------------------------------------------------------------
     # Cas : aucune cible annuelle
     # ----------------------------------------------------------------
-    if (nrow(t_data) == 0) {
-      if (isTRUE(garder_sans_cible)) {
-        results_list[[as.character(code)]] <- dplyr::mutate(
-          s_data,
-          valeur_cal  = .data[[value_col]],
-          methode_cal = "source"
-        )
-      }
-      # Comportement strict : code exclu du resultat
+    if (nrow(t_data) == 0L) {
+      if (isTRUE(garder_sans_cible))
+        results_list[[code]] <- dplyr::mutate(
+          s_data, valeur_cal = .data[[value_col]], methode_cal = "source")
       next
     }
 
     # ----------------------------------------------------------------
-    # Construction des series ts
-    # Toutes les series debutent a la meme periode donc pas de
-    # correction d'alignement necessaire.
+    # Series ts — toutes les series demarrent au meme trimestre
     # ----------------------------------------------------------------
-    s_ts <- stats::ts(
-      s_data[[value_col]],
-      start     = c(min(s_data$annee), min(s_data$trimestre)),
-      frequency = 4
-    )
+    val_source <- s_data[[value_col]]
+    s_ts <- stats::ts(val_source,
+                      start     = c(min(s_data$annee), min(s_data$trimestre)),
+                      frequency = 4L)
 
     annees_source <- min(s_data$annee):max(s_data$annee)
-    t_data_filtre <- dplyr::filter(t_data, .data$annee %in% annees_source)
+    t_filtre <- dplyr::filter(t_data, .data$annee %in% annees_source)
 
-    if (nrow(t_data_filtre) == 0) {
-      if (isTRUE(garder_sans_cible)) {
-        results_list[[as.character(code)]] <- dplyr::mutate(
-          s_data, valeur_cal = .data[[value_col]], methode_cal = "source"
-        )
-      }
+    if (nrow(t_filtre) == 0L) {
+      if (isTRUE(garder_sans_cible))
+        results_list[[code]] <- dplyr::mutate(
+          s_data, valeur_cal = .data[[value_col]], methode_cal = "source")
       next
     }
 
-    t_ts <- stats::ts(
-      t_data_filtre$valeur,
-      start     = min(t_data_filtre$annee),
-      frequency = 1
-    )
+    t_ts <- stats::ts(t_filtre$valeur,
+                      start     = min(t_filtre$annee),
+                      frequency = 1L)
 
     # ----------------------------------------------------------------
-    # Tentative Cholette (lambda fourni, puis lambda = 0)
+    # Tentative 1 : Cholette avec lambda fourni
     # ----------------------------------------------------------------
-    res_obj <- tryCatch(
-      rjd3bench::cholette(s = s_ts, t = t_ts, rho = rho, lambda = lambda,
-                          bias = bias, conversion = conversion),
-      error = function(e) {
-        tryCatch(
-          rjd3bench::cholette(s = s_ts, t = t_ts, rho = rho, lambda = 0,
-                              bias = bias, conversion = conversion),
-          error = function(e2) NULL
-        )
-      }
-    )
+    bench_ts <- appeler_cholette(s_ts, t_ts, lambda)
 
     # ----------------------------------------------------------------
-    # Cholette a echoue -> distribution plate directement
+    # Tentative 2 : Cholette additif si lambda != 0 et echec/non-cale
     # ----------------------------------------------------------------
-    if (is.null(res_obj)) {
-      message("  \u21b3 Distribution plate (echec Cholette) : ", code)
-      results_list[[as.character(code)]] <- distribuer_plate(s_data, t_data_filtre)
+    if (!is.null(bench_ts) && lambda != 0 &&
+        !contraintes_respectees(bench_ts, t_filtre)) {
+      bench_ts2 <- appeler_cholette(s_ts, t_ts, 0)
+      if (!is.null(bench_ts2) && contraintes_respectees(bench_ts2, t_filtre))
+        bench_ts <- bench_ts2
+    }
+
+    # ----------------------------------------------------------------
+    # Repli distribution plate si Cholette a echoue ou n'a pas cale
+    # ----------------------------------------------------------------
+    if (is.null(bench_ts) || !contraintes_respectees(bench_ts, t_filtre)) {
+      message("  \u21b3 Distribution plate (Cholette non cale) : ", code)
+      results_list[[code]] <- distribuer_plate(s_data, t_filtre)
       next
     }
 
     # ----------------------------------------------------------------
-    # Extraction robuste de la serie benchmarkee
+    # Realignement sur les periodes reelles
     # ----------------------------------------------------------------
-    bench_ts <- res_obj
-    if (is.list(res_obj)) {
-      if      (!is.null(res_obj$result))      bench_ts <- res_obj$result
-      else if (!is.null(res_obj$benchmarked)) bench_ts <- res_obj$benchmarked
-      else if (!is.null(res_obj$series))      bench_ts <- res_obj$series
-      else if (!is.null(res_obj$s))           bench_ts <- res_obj$s
-    }
+    valeurs_cal <- ts_vers_df(bench_ts, s_data, val_source)
 
-    bench_df <- tsq_to_df(bench_ts, value_name = "valeur_cal")
-
-    # Realignement sur les periodes reelles de s_data
-    src_df <- dplyr::select(s_data, "annee", "trimestre") |>
-      dplyr::mutate(valeur_src = s_data[[value_col]])
-
-    merged <- dplyr::left_join(src_df, bench_df, by = c("annee", "trimestre")) |>
-      dplyr::mutate(
-        valeur_cal = dplyr::if_else(
-          is.na(.data$valeur_cal), .data$valeur_src, .data$valeur_cal
-        )
-      )
-
-    if (nrow(merged) != nrow(s_data)) {
-      stop(sprintf(
-        "Alignement incoherent pour code=%s : merged=%d vs s_data=%d",
-        code, nrow(merged), nrow(s_data)
-      ), call. = FALSE)
-    }
-
-    valeurs_cal <- merged$valeur_cal
+    if (length(valeurs_cal) != nrow(s_data))
+      stop(sprintf("Alignement incoherent pour code=%s", code), call. = FALSE)
 
     # ----------------------------------------------------------------
-    # Cholette a produit des negatifs sur un code non autorise
-    # -> repli distribution plate
-    # Ce cas arrive quand la serie cible annuelle contient des zeros
-    # intercales que Cholette ne peut distribuer sans negatifs
-    # (ex : cible 0, 55000, 0, 0, 0 ...)
-    # Seule exception : les variations de stocks (codes_negatifs_autorises)
+    # Valeurs negatives non autorisees -> distribution plate
     # ----------------------------------------------------------------
-    negatifs_presents  <- any(valeurs_cal < 0, na.rm = TRUE)
-    negatifs_autorises <- code %in% codes_negatifs_autorises
-
-    if (negatifs_presents && !negatifs_autorises) {
-      message(
-        "  \u21b3 Distribution plate (n\u00e9gatifs Cholette) : ", code
-      )
-      results_list[[as.character(code)]] <- distribuer_plate(s_data, t_data_filtre)
+    if (any(valeurs_cal < 0, na.rm = TRUE) &&
+        !(code %in% codes_negatifs_autorises)) {
+      message("  \u21b3 Distribution plate (negatifs Cholette) : ", code)
+      results_list[[code]] <- distribuer_plate(s_data, t_filtre)
       next
     }
 
     # ----------------------------------------------------------------
     # Resultat Cholette valide
     # ----------------------------------------------------------------
-    results_list[[as.character(code)]] <- dplyr::mutate(
-      s_data,
-      valeur_cal  = valeurs_cal,
-      methode_cal = "cholette"
-    )
+    results_list[[code]] <- dplyr::mutate(s_data,
+                                          valeur_cal  = valeurs_cal,
+                                          methode_cal = "cholette")
   }
 
   dplyr::bind_rows(results_list)

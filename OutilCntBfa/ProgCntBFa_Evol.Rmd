@@ -258,28 +258,10 @@ ere_ressources_chaine         <- ere_res$ressources_chaine
 
 ```{r ere-emplois-meta}
 # Metadonnees — a actualiser si la nomenclature des composantes change
-path_methode_ere <- file.path(root_dir, "Methode_ERE.xlsx")
-
-map_feuille_cna <- tibble::tribble(
-  ~feuille,    ~composante_cna,
-  "CFmarch",   "CF Marchande Menage   Prix d'acquisition",
-  "CFnmarch",  "CF Non Marchande Menage Prix d'acquisition",
-  "CFapu",     "CF Non Marchande APU Prix d'acquisition",
-  "CFisblsm",  "CF Non Marchande  ISBL Prix d'acquisition",
-  "FBCF",      "FBCF Prix d'acquisition",
-  "VS",        "VS Prix d'acquisition",
-  "AOV",       "Aquisition moyen cession de origen de valeur Prix d'acquisition"
-)
-
-map_apu_cols <- tibble::tribble(
-  ~Code_Produit, ~col_apu,
-  "JZ000", "Ind1_APU*JZ000",
-  "KZ000", "Ind1_APU*K21004",
-  "OZ000", "Ind1_APU*L22000",
-  "PZ000", "Ind1_APU*P26000",
-  "QZ000", "Ind1_APU*QZ000",
-  "RS001", "Ind1_APU*RS001"
-)
+meta_ere <- construire_metadonnees_ere(root_dir)
+path_methode_ere <- meta_ere$path_methode_ere
+map_feuille_cna  <- meta_ere$map_feuille_cna
+map_apu_cols     <- meta_ere$map_apu_cols
 ```
 
 ```{r ere-emplois}
@@ -301,4 +283,3 @@ emplois_ere_complets <- ere_emp$emplois_crt
 emplois_ere_vol      <- ere_emp$emplois_vol
 emplois_ere_vpap     <- ere_emp$emplois_vpap
 ```
-

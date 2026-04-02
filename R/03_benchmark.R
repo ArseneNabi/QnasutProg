@@ -11,8 +11,15 @@
 #'   conformément à la documentation \code{rjd3bench::cholette()}.
 #' - La sortie est réalignée sur \code{(annee, trimestre)} et, si des périodes manquent,
 #'   elles sont remplacées par la valeur source (comportement "pas de contrainte => pas de calage").
-#' - Si aucune contrainte annuelle n'est disponible pour un code, la série source est
-#'   conservée telle quelle avec \code{valeur_cal = valeur source}.
+#' - Si aucune contrainte annuelle n'est disponible pour un code, le comportement
+#'   dépend de \code{garder_sans_cible} : conserver la source si \code{TRUE},
+#'   sinon exclure le code du résultat.
+#' - Aucun repli automatique en distribution plate n'est effectué. Seules deux
+#'   tentatives Cholette sont réalisées : \code{lambda} fourni puis\code{lambda = 0}.
+#' - En cas d'échec persistant de Cholette, la fonction s'arrête explicitement
+#'   avec \code{stop()} en mentionnant le \code{full_code} concerné.
+#' - Les valeurs benchmarkées négatives sont conservées et signalées via
+#'   \code{negatifs_present}.
 #'
 #' @param df_source Data frame/tibble source trimestriel. Doit contenir :
 #' \code{full_code}, \code{annee}, \code{trimestre}, et la colonne \code{value_col}.
@@ -25,8 +32,12 @@
 #' @param lambda Paramètre du modèle d'ajustement (1 proportionnel, 0 additif). Par défaut 1.
 #' @param bias Biais ("None", "Additive", "Multiplicative"). Par défaut "None".
 #' @param conversion Règle d'agrégation ("Sum" recommandé pour des flux). Par défaut "Sum".
+#' @param garder_sans_cible Booléen. Si \code{TRUE}, conserve les codes sans cible
+#' annuelle avec \code{valeur_cal = valeur source}. Si \code{FALSE} (défaut),
+#' exclut ces codes du résultat.
 #'
-#' @return Un tibble contenant les lignes de \code{df_source} traitées avec une colonne \code{valeur_cal}.
+#' @return Un tibble contenant les lignes de \code{df_source} traitées avec :
+#' \code{valeur_cal}, \code{methode_cal} et \code{negatifs_present}.
 #'
 #' @export
 benchmark_groupe <- function(df_source,
@@ -36,7 +47,8 @@ benchmark_groupe <- function(df_source,
                              rho = 1,
                              lambda = 1,
                              bias = "None",
-                             conversion = "Sum") {
+                             conversion = "Sum",
+                             garder_sans_cible = FALSE) {
 
   # ------------------------------------------------------------------
   # Vérifications minimales
@@ -133,13 +145,17 @@ benchmark_groupe <- function(df_source,
       dplyr::arrange(.data$annee)
 
     # ----------------------------------------------------------------
-    # Cas 1 : aucune cible annuelle -> on garde la source inchangée
+    # Cas 1 : aucune cible annuelle
     # ----------------------------------------------------------------
     if (nrow(t_data) == 0) {
-      results_list[[as.character(code)]] <- dplyr::mutate(
-        s_data,
-        valeur_cal = .data[[value_col]]
-      )
+      if (isTRUE(garder_sans_cible)) {
+        results_list[[as.character(code)]] <- dplyr::mutate(
+          s_data,
+          valeur_cal = .data[[value_col]],
+          methode_cal = "source",
+          negatifs_present = any(.data[[value_col]] < 0, na.rm = TRUE)
+        )
+      }
       next
     }
 
@@ -159,8 +175,8 @@ benchmark_groupe <- function(df_source,
 
     # ----------------------------------------------------------------
     # Cholette avec fallback lambda = 0
-    # Si échec total, on garde la source inchangée
     # ----------------------------------------------------------------
+    err_primary <- NULL
     res_obj <- tryCatch(
       rjd3bench::cholette(
         s = s_ts, t = t_ts,
@@ -168,23 +184,34 @@ benchmark_groupe <- function(df_source,
         bias = bias, conversion = conversion
       ),
       error = function(e) {
-        tryCatch(
-          rjd3bench::cholette(
-            s = s_ts, t = t_ts,
-            rho = rho, lambda = 0,
-            bias = bias, conversion = conversion
-          ),
-          error = function(e2) NULL
-        )
+        err_primary <<- conditionMessage(e)
+        NULL
       }
     )
 
     if (is.null(res_obj)) {
-      results_list[[as.character(code)]] <- dplyr::mutate(
-        s_data,
-        valeur_cal = .data[[value_col]]
+      err_fallback <- NULL
+      res_obj <- tryCatch(
+        rjd3bench::cholette(
+          s = s_ts, t = t_ts,
+          rho = rho, lambda = 0,
+          bias = bias, conversion = conversion
+        ),
+        error = function(e) {
+          err_fallback <<- conditionMessage(e)
+          NULL
+        }
       )
-      next
+
+      if (is.null(res_obj)) {
+        stop(
+          "Echec Cholette pour full_code='", code,
+          "' (lambda=", lambda,
+          ") puis lambda=0. Détails: ", err_primary,
+          " | fallback: ", err_fallback,
+          call. = FALSE
+        )
+      }
     }
 
     # Extraction robuste de la série benchmarkée
@@ -226,7 +253,9 @@ benchmark_groupe <- function(df_source,
 
     results_list[[as.character(code)]] <- dplyr::mutate(
       s_data,
-      valeur_cal = merged$valeur_cal
+      valeur_cal = merged$valeur_cal,
+      methode_cal = "cholette",
+      negatifs_present = any(merged$valeur_cal < 0, na.rm = TRUE)
     )
   }
 

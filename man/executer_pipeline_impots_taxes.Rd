@@ -17,11 +17,11 @@ executer_pipeline_impots_taxes(
 \arguments{
 \item{root_dir}{Repertoire racine contenant le fichier \code{R_CNA.xlsx}.}
 
-\item{donnees}{Liste retournee par \code{charger_donnees_cnt()} (au minimum
-\code{ind_crt} et \code{ind_cst}).}
+\item{donnees}{Liste retournee par \code{charger_donnees_cnt()}
+(au minimum \code{ind_crt} et \code{ind_cst}).}
 
-\item{ere_res}{Liste retournee par \code{executer_ressources_ere()} (au minimum
-\code{ressources_crt} et \code{ressources_vpap}).}
+\item{ere_res}{Liste retournee par \code{executer_ressources_ere()}
+(au minimum \code{ressources_crt} et \code{ressources_vpap}).}
 
 \item{derniere_annee_cna}{Derniere annee des CNA definitifs.}
 
@@ -35,20 +35,21 @@ negatifs Cholette sont acceptes.}
 \value{
 Liste avec au moins :
 \describe{
-  \item{imp_cna}{Cibles CNA impots (\code{ImpCrt}, \code{ImpVol}, \code{ImpCh}).}
-  \item{ind_imp_extraits}{Indicateurs extraits depuis \code{donnees}.}
-  \item{ind_imp_ere}{Indicateur impots calcule depuis ERE.}
-  \item{imp_bench}{Sortie complete de \code{benchmarker_impots_taxes()}.}
-  \item{cnt_imp_net_crt}{Serie benchmarkee en courant.}
-  \item{cnt_imp_net_ch}{Serie benchmarkee en chaine.}
-  \item{cnt_imp_net_vpap}{Serie dechainee VPAP.}
-  \item{verif_crt}{Verification annuelle courant (benchmark vs CNA).}
-  \item{alertes_imp}{Sous-ensemble des ecarts annuels non nuls.}
-  \item{path_export_imp}{Chemin du fichier Excel exporte, sinon \code{NULL}.}
+\item{imp_cna}{Cibles CNA impots (\code{ImpCrt}, \code{ImpVol}, \code{ImpCh}).}
+\item{ind_imp_extraits}{Indicateurs extraits depuis \code{donnees}.}
+\item{ind_imp_ere}{Indicateur impots calcule depuis ERE.}
+\item{imp_bench}{Sortie complete de \code{benchmarker_impots_taxes()}.}
+\item{cnt_imp_net_crt}{Serie benchmarkee en courant.}
+\item{cnt_imp_net_ch}{Serie benchmarkee en chaine.}
+\item{cnt_imp_net_vpap}{Serie dechainee VPAP.}
+\item{verif_crt}{Verification annuelle courant (benchmark vs CNA).}
+\item{alertes_imp}{Sous-ensemble des ecarts annuels non nuls.}
+\item{path_export_imp}{Chemin du fichier Excel exporte, sinon \code{NULL}.}
 }
 }
 \description{
-Encapsule l'ancienne section 3 du Rmd : import CNA impots, extraction des
-indicateurs, calcul de l'indicateur ERE, benchmarking courant/chaine/VPAP,
-verification annuelle des contraintes et export Excel optionnel.
+Encapsule l'ancienne section 3 du Rmd :
+import CNA impots, extraction des indicateurs, calcul de l'indicateur
+ERE, benchmarking courant/chaine/VPAP, verification annuelle des
+contraintes et export Excel optionnel.
 }

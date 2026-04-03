@@ -1,0 +1,36 @@
+---
+title: "Mise à jour du paramétrage de bouclage ERE"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(QnaSut)
+```
+
+## Créer / mettre à jour le fichier persistant
+
+```{r}
+# Adapter root_dir si besoin (répertoire OutilCntBfa)
+root_dir <- "C:/CnaBfaScn08/CntBfaV4/07P_Outils/OutilCntBfa"
+
+path_excel <- file.path(root_dir, "Methode_ERE.xlsx")
+path_rds <- sauvegarder_modele_equilibrage_ere(
+  path_excel = path_excel,
+  output_dir = root_dir,
+  output_file = "Modele_Equilibrage_ERE.rds",
+  overwrite = TRUE
+)
+
+path_rds
+```
+
+## Charger dans le pipeline principal
+
+```{r}
+modele_equilibrage <- charger_modele_equilibrage_ere(
+  file.path(root_dir, "Modele_Equilibrage_ERE.rds")
+)
+
+str(modele_equilibrage, max.level = 1)
+```

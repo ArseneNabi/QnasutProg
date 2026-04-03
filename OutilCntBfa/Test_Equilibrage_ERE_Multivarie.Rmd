@@ -1,0 +1,396 @@
+---
+title: "Test autonome — Equilibrage ERE multivarie"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
+```
+
+## 1) Setup
+
+```{r setup-packages}
+library(QnaSut)
+library(dplyr)
+library(tidyr)
+library(readxl)
+library(knitr)
+library(writexl)
+library(ggplot2)
+
+safe_head <- function(df, n = 10) {
+  if (is.null(df) || nrow(df) == 0) {
+    return(tibble::tibble(info = "Aucune ligne"))
+  }
+  dplyr::slice_head(df, n = n)
+}
+
+# Helper local pour respecter le workflow demandé (composantes_autorisees()).
+composantes_autorisees <- function(modele_equilibrage, code_produit) {
+  modele_equilibrage$produits_composantes_autorisees |>
+    dplyr::filter(.data$Code_Produit == code_produit) |>
+    dplyr::arrange(dplyr::desc(.data$autorise), .data$Composante)
+}
+
+extract_annual_product <- function(cna_ere_struct, composante, code_produit, type_prix = "CnaErECrt") {
+  if (is.null(cna_ere_struct[[composante]]) || is.null(cna_ere_struct[[composante]][[type_prix]])) {
+    return(tibble::tibble())
+  }
+
+  QnaSut::pivoter_ere_long(cna_ere_struct[[composante]][[type_prix]], type_prix, composante) |>
+    dplyr::filter(.data$Code_Produit == code_produit) |>
+    dplyr::group_by(.data$annee) |>
+    dplyr::summarise(valeur_annuelle = sum(.data$valeur, na.rm = TRUE), .groups = "drop")
+}
+
+annual_to_quarter <- function(tbl_annual, profile_tbl) {
+  dplyr::left_join(tbl_annual, profile_tbl, by = "annee") |>
+    dplyr::mutate(
+      part = dplyr::if_else(is.na(.data$part), 0.25, .data$part),
+      valeur_trim = .data$valeur_annuelle * .data$part
+    ) |>
+    dplyr::select(.data$annee, .data$trimestre, .data$valeur_annuelle, .data$valeur_trim)
+}
+```
+
+## 2) Chargement du parametrage
+
+```{r chargement-parametrage}
+# Le Rmd est autonome : il cherche d'abord config.yml dans OutilCntBfa,
+# puis dans le dossier courant.
+config_candidates <- c(
+  file.path(getwd(), "OutilCntBfa", "config.yml"),
+  file.path(getwd(), "config.yml"),
+  "C:/CnaBfaScn08/CntBfaV4/07P_Outils/OutilCntBfa/config.yml",
+  "C:/CnaBfaScn08/CntBfaV4/07P_Outils/QnaSut/config.yml"
+)
+
+config_path <- config_candidates[file.exists(config_candidates)][1]
+if (is.na(config_path)) {
+  stop(
+    "config.yml introuvable. Emplacements testes :\n- ",
+    paste(config_candidates, collapse = "\n- ")
+  )
+}
+
+message("✅ config.yml utilise : ", config_path)
+
+raw_cfg <- yaml::read_yaml(config_path)
+cfg <- raw_cfg[["default"]]
+if (is.null(cfg)) {
+  stop("Le fichier config.yml doit contenir une section 'default:'.")
+}
+
+required_keys <- c(
+  "root_dir", "data_hist_dir", "nomen_dir",
+  "derniere_annee_definitif", "annee_fin_projection"
+)
+missing_keys <- setdiff(required_keys, names(cfg))
+if (length(missing_keys) > 0) {
+  stop(
+    "Cles manquantes dans config.yml : ",
+    paste(missing_keys, collapse = ", ")
+  )
+}
+
+root_dir <- cfg$root_dir
+
+path_modele_rds <- file.path(root_dir, "Modele_Equilibrage_ERE.rds")
+modele_equilibrage <- QnaSut::charger_modele_equilibrage_ere(path_modele_rds)
+
+# Donnees minimales projet (sans executer le pipeline CNT complet)
+donnees <- QnaSut::charger_donnees_cnt(cfg)
+
+cat("Config chargee:", config_path, "\n")
+cat("Modele charge:", path_modele_rds, "\n")
+```
+
+## 3) Selection du produit test
+
+```{r selection-produit}
+code_produit_test <- "MN002"
+
+modele_produit <- composantes_autorisees(modele_equilibrage, code_produit_test)
+
+if (nrow(modele_produit) == 0) {
+  stop("Aucune ligne de parametrage pour le produit ", code_produit_test)
+}
+
+composantes_ajustables <- modele_produit |>
+  dplyr::filter(.data$autorise) |>
+  dplyr::pull(.data$Composante) |>
+  unique()
+
+composantes_figees <- modele_produit |>
+  dplyr::filter(!.data$autorise) |>
+  dplyr::pull(.data$Composante) |>
+  unique()
+
+cat("Produit test:", code_produit_test, "\n")
+cat("Composantes ajustables:", length(composantes_ajustables), "\n")
+cat("Composantes figees:", length(composantes_figees), "\n")
+
+knitr::kable(modele_produit, caption = "Composantes autorisees (modele produit)")
+```
+
+## 4) Preparation des donnees produit
+
+```{r preparation-donnees-produit}
+# Profil trimestriel pragmatique pour repartir des annuels CNA
+# (utilise Import/Crt si disponible, sinon repartition plate).
+profil_trim <- donnees$ind_ce_struct$Import$Crt |>
+  QnaSut::pivoter_ere_long(type_prix = "IndCE", composante = "IMPORT") |>
+  dplyr::filter(.data$Code_Produit == code_produit_test) |>
+  dplyr::group_by(.data$annee, .data$trimestre) |>
+  dplyr::summarise(valeur = sum(.data$valeur, na.rm = TRUE), .groups = "drop") |>
+  dplyr::group_by(.data$annee) |>
+  dplyr::mutate(part = dplyr::if_else(sum(abs(.data$valeur), na.rm = TRUE) > 0,
+                                      .data$valeur / sum(.data$valeur, na.rm = TRUE),
+                                      0.25)) |>
+  dplyr::ungroup() |>
+  dplyr::select(.data$annee, .data$trimestre, .data$part)
+
+if (nrow(profil_trim) == 0) {
+  profil_trim <- tidyr::expand_grid(
+    annee = seq(cfg$derniere_annee_definitif - 3, cfg$derniere_annee_definitif),
+    trimestre = 1:4
+  ) |>
+    dplyr::mutate(part = 0.25)
+}
+
+# 4.1 Emplois ajustables : cibles annuelles CNA + profil trimestriel + perturbation
+build_emploi_component <- function(composante, ajustable = TRUE) {
+  annual <- extract_annual_product(donnees$cna_ere_struct, composante, code_produit_test, "CnaErECrt")
+
+  if (nrow(annual) == 0) {
+    return(tibble::tibble())
+  }
+
+  base <- annual_to_quarter(annual, profil_trim)
+
+  # Perturbation faible (somme annuelle nulle) pour voir l'effet avant/apres.
+  pert <- c(0.03, -0.02, 0.01, -0.02)
+
+  base |>
+    dplyr::group_by(.data$annee) |>
+    dplyr::mutate(
+      valeur_trimestrielle = if (ajustable) {
+        brut <- .data$valeur_trim * (1 + pert[.data$trimestre])
+        # Recalage pour conserver exactement la cible annuelle
+        brut * (.data$valeur_annuelle / sum(brut, na.rm = TRUE))
+      } else {
+        .data$valeur_trim
+      }
+    ) |>
+    dplyr::ungroup() |>
+    dplyr::transmute(
+      Code_Produit = code_produit_test,
+      annee,
+      trimestre,
+      composante = composante,
+      valeur_trimestrielle,
+      valeur_annuelle,
+      type_bloc = "emploi"
+    )
+}
+
+emplois_aj <- purrr::map_dfr(composantes_ajustables, build_emploi_component, ajustable = TRUE)
+
+# 4.2 Emplois figes : on garde uniquement ceux presents dans CNA et non nuls
+emplois_figes <- purrr::map_dfr(composantes_figees, build_emploi_component, ajustable = FALSE) |>
+  dplyr::group_by(.data$composante) |>
+  dplyr::filter(sum(abs(.data$valeur_annuelle), na.rm = TRUE) > 0) |>
+  dplyr::ungroup()
+
+if (nrow(emplois_aj) == 0) {
+  stop("Aucune serie annuelle CNA disponible pour les composantes ajustables du produit ", code_produit_test)
+}
+
+# 4.3 Ressources : construites pour rendre la contrainte contemporaine faisable
+# total ressources = emplois figes + somme emplois ajustables cibles par trimestre
+cible_aj_trim <- emplois_aj |>
+  dplyr::group_by(.data$annee, .data$trimestre) |>
+  dplyr::summarise(cible_aj = sum(.data$valeur_trimestrielle, na.rm = TRUE), .groups = "drop")
+
+fige_trim <- emplois_figes |>
+  dplyr::group_by(.data$annee, .data$trimestre) |>
+  dplyr::summarise(total_fige = sum(.data$valeur_trimestrielle, na.rm = TRUE), .groups = "drop")
+
+ressources_total <- dplyr::full_join(cible_aj_trim, fige_trim, by = c("annee", "trimestre")) |>
+  dplyr::mutate(
+    cible_aj = tidyr::replace_na(.data$cible_aj, 0),
+    total_fige = tidyr::replace_na(.data$total_fige, 0),
+    total_ressources = .data$cible_aj + .data$total_fige
+  )
+
+# Repartition PRODUCTION / IMPORTATIONS selon CNA annuel si dispo, sinon 80/20
+share_prod <- extract_annual_product(donnees$cna_ere_struct, "PRODUCTION", code_produit_test, "CnaErECrt") |>
+  dplyr::left_join(
+    extract_annual_product(donnees$cna_ere_struct, "IMPORTATIONS", code_produit_test, "CnaErECrt") |>
+      dplyr::rename(imp = valeur_annuelle),
+    by = "annee"
+  ) |>
+  dplyr::mutate(
+    imp = tidyr::replace_na(.data$imp, 0),
+    total = .data$valeur_annuelle + .data$imp,
+    share_prod = dplyr::if_else(.data$total > 0, .data$valeur_annuelle / .data$total, 0.8)
+  ) |>
+  dplyr::select(.data$annee, .data$share_prod)
+
+ressources_bloc <- ressources_total |>
+  dplyr::left_join(share_prod, by = "annee") |>
+  dplyr::mutate(share_prod = tidyr::replace_na(.data$share_prod, 0.8))
+
+ressources <- dplyr::bind_rows(
+  ressources_bloc |>
+    dplyr::mutate(composante = "PRODUCTION", valeur_trimestrielle = .data$total_ressources * .data$share_prod),
+  ressources_bloc |>
+    dplyr::mutate(composante = "IMPORTATIONS", valeur_trimestrielle = .data$total_ressources * (1 - .data$share_prod))
+) |>
+  dplyr::group_by(.data$composante, .data$annee) |>
+  dplyr::mutate(valeur_annuelle = sum(.data$valeur_trimestrielle, na.rm = TRUE)) |>
+  dplyr::ungroup() |>
+  dplyr::transmute(
+    Code_Produit = code_produit_test,
+    annee,
+    trimestre,
+    composante,
+    valeur_trimestrielle,
+    valeur_annuelle,
+    type_bloc = "ressource"
+  )
+
+data_produit <- dplyr::bind_rows(ressources, emplois_figes, emplois_aj) |>
+  dplyr::arrange(.data$annee, .data$trimestre, .data$type_bloc, .data$composante)
+
+data_prepared <- QnaSut::preparer_donnees_equilibrage_ere_produit(
+  data_produit = data_produit,
+  composantes_ajustables = composantes_ajustables
+)
+
+knitr::kable(safe_head(data_prepared, 20), caption = "Apercu data_prepared")
+```
+
+## 5) Preparation des contraintes
+
+```{r preparation-contraintes}
+contraintes <- QnaSut::preparer_contraintes_equilibrage_ere_produit(data_prepared)
+
+cat("Composantes ajustables retenues:\n")
+print(contraintes$composantes_ajustables)
+
+cat("\nComposantes figees retenues:\n")
+print(contraintes$composantes_figees)
+
+cat("\nContrainte contemporaine (ccvector):\n")
+print(contraintes$ccvector)
+
+cat("\nContraintes temporelles annuelles (tcvector):\n")
+print(contraintes$tcvector)
+
+knitr::kable(safe_head(contraintes$table_contrainte, 12), caption = "Contrainte contemporaine construite")
+```
+
+## 6) Execution multivariee
+
+```{r execution-multivariee}
+res_equilibrage <- QnaSut::equilibrer_produit_ere_multivariatecholette(
+  data_produit = data_produit,
+  composantes_ajustables = composantes_ajustables
+)
+
+series_ajustees <- res_equilibrage$series_ajustees
+controle_annuel <- res_equilibrage$diagnostic$controle_annuel
+controle_contemporain <- res_equilibrage$diagnostic$controle_contemporain
+
+knitr::kable(safe_head(series_ajustees, 20), caption = "series_ajustees (avant/apres)")
+```
+
+## 7) Diagnostics
+
+```{r diagnostics-tableaux}
+cat("tcvector utilise:\n")
+print(res_equilibrage$contraintes$tcvector)
+
+cat("\nccvector utilise:\n")
+print(res_equilibrage$contraintes$ccvector)
+
+knitr::kable(controle_annuel, digits = 4, caption = "Controle annuel (somme trimestrielle vs cible)")
+knitr::kable(controle_contemporain, digits = 4, caption = "Controle contemporain trimestriel")
+```
+
+```{r diagnostics-visu, fig.height=5, fig.width=10}
+plot_data <- series_ajustees |>
+  tidyr::pivot_longer(
+    cols = c(valeur_avant, valeur_apres),
+    names_to = "etat",
+    values_to = "valeur"
+  ) |>
+  dplyr::mutate(
+    periode = paste0(.data$annee, "-T", .data$trimestre),
+    etat = dplyr::recode(.data$etat,
+                         valeur_avant = "Avant",
+                         valeur_apres = "Apres")
+  )
+
+ggplot(plot_data, aes(x = periode, y = valeur, color = etat, group = etat)) +
+  geom_line() +
+  geom_point(size = 1.4) +
+  facet_wrap(~ composante, scales = "free_y") +
+  labs(
+    title = paste("Produit", code_produit_test, "- composantes ajustables"),
+    x = "Periode trimestrielle",
+    y = "Valeur",
+    color = "Serie"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## 8) Export optionnel
+
+```{r export-optionnel}
+export_excel <- TRUE
+
+if (isTRUE(export_excel)) {
+  path_export <- file.path(
+    root_dir,
+    paste0("Equilibrage_ERE_", code_produit_test, "_", format(Sys.Date(), "%Y%m%d"), ".xlsx")
+  )
+
+  writexl::write_xlsx(
+    list(
+      composantes_modele = modele_produit,
+      data_prepared = data_prepared,
+      table_contrainte = contraintes$table_contrainte,
+      series_ajustees = series_ajustees,
+      controle_annuel = controle_annuel,
+      controle_contemporain = controle_contemporain
+    ),
+    path = path_export
+  )
+
+  cat("Export realise:", path_export, "\n")
+} else {
+  cat("Export desactive (export_excel = FALSE).\n")
+}
+```
+
+## Structure attendue de `data_produit`
+
+Le module multivarie exige une table longue avec les colonnes suivantes :
+
+- `Code_Produit` (un seul produit),
+- `annee`, `trimestre`,
+- `composante`,
+- `valeur_trimestrielle`,
+- `valeur_annuelle` (constante par composante/annee),
+- `type_bloc` (`"ressource"` ou `"emploi"`).
+
+Ce Rmd construit explicitement cette structure a partir de `cna_ere_struct`,
+`ind_ce_struct` et du modèle de bouclage charge depuis
+`Modele_Equilibrage_ERE.rds`.

@@ -29,6 +29,19 @@ safe_head <- function(df, n = 10) {
   dplyr::slice_head(df, n = n)
 }
 
+as_export_df <- function(x) {
+  if (is.null(x)) {
+    return(tibble::tibble(info = "Objet NULL (fallback)"))
+  }
+  if (is.data.frame(x)) {
+    return(x)
+  }
+  if (is.atomic(x)) {
+    return(tibble::tibble(valeur = as.character(x)))
+  }
+  tibble::tibble(str_objet = utils::capture.output(str(x)))
+}
+
 # Helper local pour respecter le workflow demandé (composantes_autorisees()).
 composantes_autorisees <- function(modele_equilibrage, code_produit) {
   modele_equilibrage$produits_composantes_autorisees |>
@@ -53,7 +66,7 @@ annual_to_quarter <- function(tbl_annual, profile_tbl) {
       part = dplyr::if_else(is.na(.data$part), 0.25, .data$part),
       valeur_trim = .data$valeur_annuelle * .data$part
     ) |>
-    dplyr::select(.data$annee, .data$trimestre, .data$valeur_annuelle, .data$valeur_trim)
+    dplyr::select(annee, trimestre, valeur_annuelle, valeur_trim)
 }
 ```
 
@@ -128,7 +141,7 @@ profil_trim <- donnees$ind_ce_struct$Import$Crt |>
                                       .data$valeur / sum(.data$valeur, na.rm = TRUE),
                                       0.25)) |>
   dplyr::ungroup() |>
-  dplyr::select(.data$annee, .data$trimestre, .data$part)
+  dplyr::select(annee, trimestre, part)
 
 if (nrow(profil_trim) == 0) {
   profil_trim <- tidyr::expand_grid(
@@ -215,7 +228,7 @@ share_prod <- extract_annual_product(donnees$cna_ere_struct, "PRODUCTION", code_
     total = .data$valeur_annuelle + .data$imp,
     share_prod = dplyr::if_else(.data$total > 0, .data$valeur_annuelle / .data$total, 0.8)
   ) |>
-  dplyr::select(.data$annee, .data$share_prod)
+  dplyr::select(annee, share_prod)
 
 ressources_bloc <- ressources_total |>
   dplyr::left_join(share_prod, by = "annee") |>
@@ -340,12 +353,12 @@ if (isTRUE(export_excel)) {
 
   writexl::write_xlsx(
     list(
-      composantes_modele = modele_produit,
-      data_prepared = data_prepared,
-      table_contrainte = contraintes$table_contrainte,
-      series_ajustees = series_ajustees,
-      controle_annuel = controle_annuel,
-      controle_contemporain = controle_contemporain
+      composantes_modele = as_export_df(modele_produit),
+      data_prepared = as_export_df(data_prepared),
+      table_contrainte = as_export_df(contraintes$table_contrainte),
+      series_ajustees = as_export_df(series_ajustees),
+      controle_annuel = as_export_df(controle_annuel),
+      controle_contemporain = as_export_df(controle_contemporain)
     ),
     path = path_export
   )

@@ -69,6 +69,25 @@ test_that("preparer_contraintes_equilibrage_ere_produit construit bien ccvector"
   expect_equal(length(prep$tcvector), 2)
 })
 
+test_that("recentrer_contraintes_trimestrielles_par_annee recentre bien les ecarts", {
+  contraintes <- tibble::tibble(
+    annee = rep(2024L, 4),
+    trimestre = 1:4,
+    contrainte_contemp = c(10, -20, -30, 50)
+  )
+
+  res <- recentrer_contraintes_trimestrielles_par_annee(
+    table_contrainte = contraintes,
+    tol_recentering = 1e-12
+  )
+
+  expect_equal(res$offset_applique, rep(2.5, 4))
+  expect_equal(res$contrainte_initiale, c(10, -20, -30, 50))
+  expect_equal(res$contrainte_contemp, c(7.5, -22.5, -32.5, 47.5))
+  expect_equal(unique(res$somme_annuelle_avant), 10)
+  expect_lt(max(abs(res$somme_annuelle_apres)), 1e-9)
+})
+
 test_that("equilibrer_produit_ere_multivariatecholette retourne des series equilibrees", {
   data_test <- .build_data_test()
 

@@ -2,6 +2,61 @@
 #' @import tidyr
 NULL
 
+#' Recentrer les contraintes trimestrielles par année
+#'
+#' @description
+#' Corrige une contrainte trimestrielle contemporaine lorsque, pour une année
+#' donnée, la somme des contraintes n'est pas nulle à une tolérance près.
+#' La correction est un recentrage annuel uniforme :
+#' \deqn{offset = \frac{\sum_t contrainte_t}{n}}
+#' \deqn{contrainte\_corrigee_t = contrainte\_initiale_t - offset}
+#' où \eqn{n} est le nombre de trimestres observés de l'année.
+#'
+#' @param table_contrainte Tibble contenant au minimum
+#'   \code{annee}, \code{trimestre}, \code{contrainte_contemp}.
+#' @param tol_recentering Tolérance absolue sur la somme annuelle. Si
+#'   \code{|somme_annuelle| <= tol_recentering}, aucun recentrage n'est appliqué.
+#' @return Tibble enrichi avec :
+#' \describe{
+#'   \item{contrainte_initiale}{Contrainte trimestrielle avant correction.}
+#'   \item{contrainte_contemp}{Contrainte trimestrielle corrigée (ou inchangée).}
+#'   \item{offset_applique}{Offset annuel soustrait à chaque trimestre.}
+#'   \item{somme_annuelle_avant}{Somme annuelle avant correction.}
+#'   \item{somme_annuelle_apres}{Somme annuelle après correction.}
+#' }
+#' @export
+recentrer_contraintes_trimestrielles_par_annee <- function(table_contrainte,
+                                                            tol_recentering = 1e-8) {
+  colonnes_requises <- c("annee", "trimestre", "contrainte_contemp")
+  manquantes <- setdiff(colonnes_requises, names(table_contrainte))
+
+  if (length(manquantes) > 0) {
+    stop(
+      "table_contrainte incomplet. Colonnes manquantes : ",
+      paste(manquantes, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  table_contrainte |>
+    dplyr::arrange(.data$annee, .data$trimestre) |>
+    dplyr::mutate(contrainte_initiale = .data$contrainte_contemp) |>
+    dplyr::group_by(.data$annee) |>
+    dplyr::mutate(
+      nb_trimestres = dplyr::n(),
+      somme_annuelle_avant = sum(.data$contrainte_initiale, na.rm = TRUE),
+      offset_applique = dplyr::if_else(
+        abs(.data$somme_annuelle_avant) > tol_recentering,
+        .data$somme_annuelle_avant / .data$nb_trimestres,
+        0
+      ),
+      contrainte_contemp = .data$contrainte_initiale - .data$offset_applique,
+      somme_annuelle_apres = sum(.data$contrainte_contemp, na.rm = TRUE)
+    ) |>
+    dplyr::ungroup() |>
+    dplyr::select(-.data$nb_trimestres)
+}
+
 #' Préparer un produit ERE pour équilibrage multivarié
 #'
 #' @description
@@ -110,11 +165,16 @@ preparer_donnees_equilibrage_ere_produit <- function(data_produit,
 #'
 #' @param data_prepared Sortie de
 #'   \code{preparer_donnees_equilibrage_ere_produit()}.
+#' @param tol_recentering Tolérance absolue utilisée pour le recentrage annuel
+#'   de la contrainte contemporaine. Si la somme annuelle de
+#'   \code{contrainte_contemp} est inférieure à cette tolérance en valeur
+#'   absolue, aucune correction n'est appliquée.
 #' @return Liste contenant \code{xlist}, \code{tcvector}, \code{ccvector},
 #'   \code{table_contrainte}, \code{composantes_ajustables},
 #'   \code{composantes_figees} et \code{code_produit}.
 #' @export
-preparer_contraintes_equilibrage_ere_produit <- function(data_prepared) {
+preparer_contraintes_equilibrage_ere_produit <- function(data_prepared,
+                                                          tol_recentering = 1e-8) {
   if (!"ajustable" %in% names(data_prepared)) {
     stop("data_prepared doit contenir la colonne 'ajustable'.", call. = FALSE)
   }
@@ -169,6 +229,11 @@ preparer_contraintes_equilibrage_ere_produit <- function(data_prepared) {
   if (any(!is.finite(table_totaux$contrainte_contemp))) {
     stop("La contrainte contemporaine ne peut pas etre construite.", call. = FALSE)
   }
+
+  table_totaux <- recentrer_contraintes_trimestrielles_par_annee(
+    table_contrainte = table_totaux,
+    tol_recentering = tol_recentering
+  )
 
   debut <- data_prepared |>
     dplyr::arrange(.data$annee, .data$trimestre) |>
@@ -230,6 +295,8 @@ preparer_contraintes_equilibrage_ere_produit <- function(data_prepared) {
 #'   \code{preparer_donnees_equilibrage_ere_produit()}).
 #' @param composantes_ajustables Vecteur des composantes emplois autorisées à
 #'   absorber le déséquilibre.
+#' @param tol_recentering Tolérance absolue pour le recentrage annuel de
+#'   \code{CONTRAINTE_CONTEMP} lors de la préparation des contraintes.
 #' @param call_cholette Fonction d'estimation. Par défaut,
 #'   \code{rjd3bench::multivariatecholette}. Paramètre injectable pour tests.
 #' @return Liste avec :
@@ -243,6 +310,7 @@ preparer_contraintes_equilibrage_ere_produit <- function(data_prepared) {
 equilibrer_produit_ere_multivariatecholette <- function(
     data_produit,
     composantes_ajustables,
+    tol_recentering = 1e-8,
     call_cholette = rjd3bench::multivariatecholette) {
 
   data_prepared <- preparer_donnees_equilibrage_ere_produit(
@@ -250,7 +318,10 @@ equilibrer_produit_ere_multivariatecholette <- function(
     composantes_ajustables = composantes_ajustables
   )
 
-  prep <- preparer_contraintes_equilibrage_ere_produit(data_prepared)
+  prep <- preparer_contraintes_equilibrage_ere_produit(
+    data_prepared = data_prepared,
+    tol_recentering = tol_recentering
+  )
 
   code_produit <- prep$code_produit
 
@@ -379,11 +450,14 @@ equilibrer_produit_ere_multivariatecholette <- function(
 #' @param data_ere Table longue multi-produits.
 #' @param model_equil Table de paramétrage des modèles de bouclage avec colonnes
 #'   minimales \code{Code_Produit} et \code{composante_ajustable}.
+#' @param tol_recentering Tolérance absolue pour le recentrage annuel de
+#'   \code{CONTRAINTE_CONTEMP} lors de la préparation des contraintes.
 #' @param call_cholette Fonction d'estimation injectable.
 #' @return Liste nommée par \code{Code_Produit}.
 #' @export
 equilibrer_ere_multivarie <- function(data_ere,
                                       model_equil,
+                                      tol_recentering = 1e-8,
                                       call_cholette = rjd3bench::multivariatecholette) {
 
   if (!all(c("Code_Produit", "composante_ajustable") %in% names(model_equil))) {
@@ -412,6 +486,7 @@ equilibrer_ere_multivarie <- function(data_ere,
       equilibrer_produit_ere_multivariatecholette(
         data_produit = dplyr::filter(data_ere, .data$Code_Produit == code),
         composantes_ajustables = composantes_aj,
+        tol_recentering = tol_recentering,
         call_cholette = call_cholette
       )
     })

@@ -2,33 +2,39 @@
 % Please edit documentation in R/17_modele_equilibrage_ere.R
 \name{sauvegarder_modele_equilibrage_ere}
 \alias{sauvegarder_modele_equilibrage_ere}
-\title{Sauvegarder le modèle d'équilibrage ERE en fichier RDS persistant}
+\title{Sauvegarder le modèle de bouclage ERE au format RDS}
 \usage{
 sauvegarder_modele_equilibrage_ere(
   path_excel,
-  output_dir = "C:/CnaBfaScn08/CntBfaV4/07P_Outils/OutilCntBfa",
+  output_dir = NULL,
   output_file = "Modele_Equilibrage_ERE.rds",
   sheet = "ModelEquil",
   overwrite = FALSE,
-  strict = TRUE
+  strict = TRUE,
+  ...
 )
 }
 \arguments{
-\item{path_excel}{Chemin vers \code{Methode_ERE.xlsx}.}
+\item{path_excel}{Chemin du fichier Excel.}
 
-\item{output_dir}{Répertoire de sortie du fichier \code{.rds}.}
+\item{output_dir}{Répertoire de sortie. Si \code{NULL}, la fonction tente
+d'utiliser \code{load_config()$root_dir}.}
 
-\item{output_file}{Nom du fichier de sortie \code{.rds}.}
+\item{output_file}{Nom du fichier \code{.rds}.}
 
-\item{sheet}{Nom de la feuille (défaut : \code{"ModelEquil"}).}
+\item{sheet}{Nom de la feuille Excel.}
 
-\item{overwrite}{Si \code{FALSE} (défaut), empêche l'écrasement d'un fichier existant.}
+\item{overwrite}{Si \code{TRUE}, écrase un fichier existant.}
 
-\item{strict}{Propagé à \code{importer_modele_equilibrage_ere_excel()}.}
+\item{strict}{Niveau de sévérité de l'import.}
+
+\item{...}{Arguments supplémentaires passés à
+\code{importer_modele_equilibrage_ere_excel()}.}
 }
 \value{
-Invisiblement le chemin complet du fichier créé.
+Invisiblement, le chemin complet du fichier \code{.rds} créé.
 }
 \description{
-Importe la feuille \code{ModelEquil} depuis \code{Methode_ERE.xlsx}, construit l'objet de paramétrage puis le sauvegarde sur disque (par défaut \code{Modele_Equilibrage_ERE.rds}).
+Importe la feuille \code{ModelEquil} depuis Excel puis sauvegarde l'objet de
+paramétrage dans un fichier \code{.rds}.
 }

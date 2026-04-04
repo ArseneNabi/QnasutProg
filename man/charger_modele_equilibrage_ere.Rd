@@ -2,21 +2,25 @@
 % Please edit documentation in R/17_modele_equilibrage_ere.R
 \name{charger_modele_equilibrage_ere}
 \alias{charger_modele_equilibrage_ere}
-\title{Charger le modèle d'équilibrage ERE sauvegardé}
+\title{Charger le modèle de bouclage ERE depuis un fichier RDS}
 \usage{
 charger_modele_equilibrage_ere(
-  path_rds = "C:/CnaBfaScn08/CntBfaV4/07P_Outils/OutilCntBfa/Modele_Equilibrage_ERE.rds",
+  path_rds = NULL,
+  output_file = "Modele_Equilibrage_ERE.rds",
   validate = TRUE
 )
 }
 \arguments{
-\item{path_rds}{Chemin vers le fichier \code{.rds}.}
+\item{path_rds}{Chemin du fichier \code{.rds}. Si \code{NULL}, la fonction tente
+d'utiliser \code{load_config()$root_dir/Modele_Equilibrage_ERE.rds}.}
 
-\item{validate}{Si \code{TRUE} (défaut), vérifie la structure minimale.}
+\item{output_file}{Nom du fichier si \code{path_rds = NULL}.}
+
+\item{validate}{Si \code{TRUE}, vérifie la structure minimale de l'objet.}
 }
 \value{
-Liste de paramétrage du modèle d'équilibrage ERE.
+Une liste de paramétrage du modèle de bouclage ERE.
 }
 \description{
-Lit le fichier \code{.rds} de paramétrage préparé en amont et valide sa structure minimale.
+Charge un fichier \code{.rds} de paramétrage du bouclage ERE.
 }

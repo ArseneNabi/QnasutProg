@@ -29,6 +29,19 @@ safe_head <- function(df, n = 10) {
   dplyr::slice_head(df, n = n)
 }
 
+as_export_df <- function(x) {
+  if (is.null(x)) {
+    return(tibble::tibble(info = "Objet NULL (fallback)"))
+  }
+  if (is.data.frame(x)) {
+    return(x)
+  }
+  if (is.atomic(x)) {
+    return(tibble::tibble(valeur = as.character(x)))
+  }
+  tibble::tibble(str_objet = utils::capture.output(str(x)))
+}
+
 # Helper local pour respecter le workflow demandé (composantes_autorisees()).
 composantes_autorisees <- function(modele_equilibrage, code_produit) {
   modele_equilibrage$produits_composantes_autorisees |>
@@ -37,11 +50,37 @@ composantes_autorisees <- function(modele_equilibrage, code_produit) {
 }
 
 extract_annual_product <- function(cna_ere_struct, composante, code_produit, type_prix = "CnaErECrt") {
-  if (is.null(cna_ere_struct[[composante]]) || is.null(cna_ere_struct[[composante]][[type_prix]])) {
+
+  norm_txt <- function(x) {
+    x <- ifelse(is.na(x), "", as.character(x))
+    x <- trimws(x)
+    x <- gsub("[[:space:]]+", " ", x)
+    x
+  }
+
+  noms_disponibles <- names(cna_ere_struct)
+  noms_norm <- norm_txt(noms_disponibles)
+  composante_norm <- norm_txt(composante)
+
+  idx <- match(composante_norm, noms_norm)
+
+  if (is.na(idx)) {
+    warning("Composante introuvable dans cna_ere_struct : ", composante)
     return(tibble::tibble())
   }
 
-  QnaSut::pivoter_ere_long(cna_ere_struct[[composante]][[type_prix]], type_prix, composante) |>
+  composante_reelle <- noms_disponibles[idx]
+
+  if (is.null(cna_ere_struct[[composante_reelle]]) ||
+      is.null(cna_ere_struct[[composante_reelle]][[type_prix]])) {
+    return(tibble::tibble())
+  }
+
+  QnaSut::pivoter_ere_long(
+    cna_ere_struct[[composante_reelle]][[type_prix]],
+    type_prix,
+    composante_reelle
+  ) |>
     dplyr::filter(.data$Code_Produit == code_produit) |>
     dplyr::group_by(.data$annee) |>
     dplyr::summarise(valeur_annuelle = sum(.data$valeur, na.rm = TRUE), .groups = "drop")
@@ -50,10 +89,10 @@ extract_annual_product <- function(cna_ere_struct, composante, code_produit, typ
 annual_to_quarter <- function(tbl_annual, profile_tbl) {
   dplyr::left_join(tbl_annual, profile_tbl, by = "annee") |>
     dplyr::mutate(
-      part = dplyr::if_else(is.na(.data$part), 0.25, .data$part),
-      valeur_trim = .data$valeur_annuelle * .data$part
+      part = dplyr::if_else(is.na(part), 0.25, part),
+      valeur_trim = valeur_annuelle * part
     ) |>
-    dplyr::select(.data$annee, .data$trimestre, .data$valeur_annuelle, .data$valeur_trim)
+    dplyr::select(annee, trimestre, valeur_annuelle, valeur_trim)
 }
 ```
 
@@ -64,13 +103,28 @@ annual_to_quarter <- function(tbl_annual, profile_tbl) {
 # puis dans le dossier courant.
 config_candidates <- c(
   file.path(getwd(), "OutilCntBfa", "config.yml"),
-  file.path(getwd(), "config.yml")
+  file.path(getwd(), "config.yml"),
+  "C:/CnaBfaScn08/CntBfaV4/07P_Outils/OutilCntBfa/config.yml",
+  "C:/CnaBfaScn08/CntBfaV4/07P_Outils/QnaSut/config.yml"
 )
 
-config_path <- config_candidates[file.exists(config_candidates)][1]
-if (is.na(config_path)) {
-  stop("config.yml introuvable. Verifiez OutilCntBfa/config.yml ou le repertoire courant.")
+config_candidates <- unique(config_candidates[file.exists(config_candidates)])
+
+if (length(config_candidates) == 0) {
+  stop(
+    "config.yml introuvable. Emplacements testes :\n",
+    paste(c(
+      file.path(getwd(), "OutilCntBfa", "config.yml"),
+      file.path(getwd(), "config.yml"),
+      "C:/CnaBfaScn08/CntBfaV4/07P_Outils/OutilCntBfa/config.yml",
+      "C:/CnaBfaScn08/CntBfaV4/07P_Outils/QnaSut/config.yml"
+    ), collapse = "\n"),
+    call. = FALSE
+  )
 }
+
+config_path <- config_candidates[1]
+message("config.yml utilise : ", config_path)
 
 cfg <- QnaSut::load_config(config_path)
 root_dir <- cfg$root_dir
@@ -124,11 +178,15 @@ profil_trim <- donnees$ind_ce_struct$Import$Crt |>
   dplyr::group_by(.data$annee, .data$trimestre) |>
   dplyr::summarise(valeur = sum(.data$valeur, na.rm = TRUE), .groups = "drop") |>
   dplyr::group_by(.data$annee) |>
-  dplyr::mutate(part = dplyr::if_else(sum(abs(.data$valeur), na.rm = TRUE) > 0,
-                                      .data$valeur / sum(.data$valeur, na.rm = TRUE),
-                                      0.25)) |>
+  dplyr::mutate(
+    total = sum(.data$valeur, na.rm = TRUE),
+    part = dplyr::case_when(
+      is.na(total) | total == 0 ~ 0.25,
+      TRUE ~ .data$valeur / total
+    )
+  ) |>
   dplyr::ungroup() |>
-  dplyr::select(.data$annee, .data$trimestre, .data$part)
+  dplyr::select(annee, trimestre, part)
 
 if (nrow(profil_trim) == 0) {
   profil_trim <- tidyr::expand_grid(
@@ -140,7 +198,12 @@ if (nrow(profil_trim) == 0) {
 
 # 4.1 Emplois ajustables : cibles annuelles CNA + profil trimestriel + perturbation
 build_emploi_component <- function(composante, ajustable = TRUE) {
-  annual <- extract_annual_product(donnees$cna_ere_struct, composante, code_produit_test, "CnaErECrt")
+  annual <- extract_annual_product(
+    donnees$cna_ere_struct,
+    composante,
+    code_produit_test,
+    "CnaErECrt"
+  )
 
   if (nrow(annual) == 0) {
     return(tibble::tibble())
@@ -148,18 +211,38 @@ build_emploi_component <- function(composante, ajustable = TRUE) {
 
   base <- annual_to_quarter(annual, profil_trim)
 
-  # Perturbation faible (somme annuelle nulle) pour voir l'effet avant/apres.
+  # Cas 1 : série annuelle entièrement nulle
+  if (all(base$valeur_annuelle == 0, na.rm = TRUE)) {
+    return(
+      base |>
+        dplyr::transmute(
+          Code_Produit = code_produit_test,
+          annee,
+          trimestre,
+          composante = composante,
+          valeur_trimestrielle = 0,
+          valeur_annuelle = 0,
+          type_bloc = "emploi"
+        )
+    )
+  }
+
   pert <- c(0.03, -0.02, 0.01, -0.02)
 
   base |>
-    dplyr::group_by(.data$annee) |>
+    dplyr::group_by(annee) |>
     dplyr::mutate(
       valeur_trimestrielle = if (ajustable) {
-        brut <- .data$valeur_trim * (1 + pert[.data$trimestre])
-        # Recalage pour conserver exactement la cible annuelle
-        brut * (.data$valeur_annuelle / sum(brut, na.rm = TRUE))
+        brut <- valeur_trim * (1 + pert[trimestre])
+        somme_brut <- sum(brut, na.rm = TRUE)
+
+        if (is.na(somme_brut) || somme_brut == 0) {
+          valeur_trim
+        } else {
+          brut * (valeur_annuelle / somme_brut)
+        }
       } else {
-        .data$valeur_trim
+        valeur_trim
       }
     ) |>
     dplyr::ungroup() |>
@@ -215,7 +298,7 @@ share_prod <- extract_annual_product(donnees$cna_ere_struct, "PRODUCTION", code_
     total = .data$valeur_annuelle + .data$imp,
     share_prod = dplyr::if_else(.data$total > 0, .data$valeur_annuelle / .data$total, 0.8)
   ) |>
-  dplyr::select(.data$annee, .data$share_prod)
+  dplyr::select(annee, share_prod)
 
 ressources_bloc <- ressources_total |>
   dplyr::left_join(share_prod, by = "annee") |>
@@ -340,12 +423,12 @@ if (isTRUE(export_excel)) {
 
   writexl::write_xlsx(
     list(
-      composantes_modele = modele_produit,
-      data_prepared = data_prepared,
-      table_contrainte = contraintes$table_contrainte,
-      series_ajustees = series_ajustees,
-      controle_annuel = controle_annuel,
-      controle_contemporain = controle_contemporain
+      composantes_modele = as_export_df(modele_produit),
+      data_prepared = as_export_df(data_prepared),
+      table_contrainte = as_export_df(contraintes$table_contrainte),
+      series_ajustees = as_export_df(series_ajustees),
+      controle_annuel = as_export_df(controle_annuel),
+      controle_contemporain = as_export_df(controle_contemporain)
     ),
     path = path_export
   )

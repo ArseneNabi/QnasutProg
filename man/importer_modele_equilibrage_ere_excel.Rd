@@ -2,32 +2,75 @@
 % Please edit documentation in R/17_modele_equilibrage_ere.R
 \name{importer_modele_equilibrage_ere_excel}
 \alias{importer_modele_equilibrage_ere_excel}
-\title{Importer le paramétrage du modèle d'équilibrage ERE depuis Excel}
+\title{Importer le modèle de bouclage ERE depuis Excel}
 \usage{
 importer_modele_equilibrage_ere_excel(
   path_excel,
   sheet = "ModelEquil",
   composantes_attendues = NULL,
-  strict = TRUE
+  strict = TRUE,
+  header_row = NULL,
+  product_code_col = NULL,
+  product_designation_col = NULL,
+  product_modele_col = NULL,
+  dictionary_modele_col = NULL,
+  composante_cols = NULL
 )
 }
 \arguments{
-\item{path_excel}{Chemin vers le classeur \code{Methode_ERE.xlsx}.}
+\item{path_excel}{Chemin du fichier Excel.}
 
-\item{sheet}{Nom de la feuille contenant le modèle (défaut : \code{"ModelEquil"}).}
+\item{sheet}{Nom de la feuille Excel à lire.}
 
-\item{composantes_attendues}{Vecteur optionnel des composantes emplois attendues. Si \code{NULL}, le jeu standard ERE est utilisé.}
+\item{composantes_attendues}{Vecteur optionnel des composantes à rechercher.
+Si \code{NULL}, le vecteur standard ERE est utilisé.}
 
-\item{strict}{Si \code{TRUE} (défaut), les incohérences bloquantes provoquent une erreur. Si \code{FALSE}, des warnings sont émis lorsque possible.}
+\item{strict}{Si \code{TRUE}, les incohérences d'import bloquent avec \code{stop()}.
+Si \code{FALSE}, certaines incohérences produisent des \code{warning()}.}
+
+\item{header_row}{Numéro de la ligne d'en-tête si vous voulez forcer la
+détection. Si \code{NULL}, la fonction tente de la détecter automatiquement.}
+
+\item{product_code_col}{Colonne du code produit si vous voulez la forcer
+(index numérique, en comptant depuis 1). Sinon détection automatique.}
+
+\item{product_designation_col}{Colonne de la désignation produit si vous
+voulez la forcer. Sinon détection automatique.}
+
+\item{product_modele_col}{Colonne du modèle côté table produits si vous
+voulez la forcer. Sinon détection automatique.}
+
+\item{dictionary_modele_col}{Colonne du modèle côté dictionnaire des modèles
+si vous voulez la forcer. Sinon détection automatique.}
+
+\item{composante_cols}{Vecteur nommé optionnel donnant explicitement les
+colonnes des composantes du dictionnaire. Les noms doivent être les noms
+standards des composantes.}
 }
 \value{
-Une liste nommée contenant : \code{produits_modeles}, \code{modeles_composantes}, \code{produits_composantes_autorisees}, \code{composantes_standardisees}.
+Une liste contenant :
+\describe{
+\item{produits_modeles}{Table des produits et du modèle retenu.}
+\item{modeles_composantes}{Table longue des modèles et des composantes autorisées.}
+\item{produits_composantes_autorisees}{Table longue finale produit x composante.}
+\item{composantes_standardisees}{Vecteur standard des composantes reconnues.}
+\item{meta_import}{Métadonnées de lecture (feuille, ligne d'en-tête, colonnes détectées).}
+}
 }
 \description{
-Lit la feuille \code{ModelEquil} du fichier \code{Methode_ERE.xlsx} et reconstruit les trois objets de paramétrage :
+Lit la feuille \code{ModelEquil} du classeur \code{Methode_ERE.xlsx} et construit
+un objet de paramétrage du bouclage ERE.
+
+La structure attendue est celle visible dans votre classeur :
 \itemize{
-\item \code{produits_modeles} : table produit -> modèle retenu,
-\item \code{modeles_composantes} : dictionnaire modèle -> composantes autorisées,
-\item \code{produits_composantes_autorisees} : table dérivée produit -> composantes.
+\item une table \strong{produit -> modèle} à gauche, avec au minimum
+les colonnes \code{Code}, \code{Désign.} (optionnelle) et \code{Modèle} ;
+\item une table \strong{modèle -> composantes autorisées} à droite,
+sur la même ligne d'en-tête, avec une colonne \code{Modèle} puis les
+composantes (\verb{CI Prix d'acquisition}, \verb{FBCF Prix d'acquisition}, etc.)
+remplies par \code{Ok} / \code{No}.
 }
+
+La fonction est robuste aux accents, espaces multiples et variantes
+mineures de casse.
 }

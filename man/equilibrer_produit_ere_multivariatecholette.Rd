@@ -8,7 +8,8 @@ equilibrer_produit_ere_multivariatecholette(
   data_produit,
   composantes_ajustables,
   forcer_coherence = TRUE,
-  call_cholette = rjd3bench::multivariatecholette
+  call_cholette = rjd3bench::multivariatecholette,
+  mode_debug = FALSE
 )
 }
 \arguments{

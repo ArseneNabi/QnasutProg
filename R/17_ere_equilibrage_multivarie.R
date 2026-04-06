@@ -320,7 +320,8 @@ equilibrer_produit_ere_multivariatecholette <- function(
     data_produit,
     composantes_ajustables,
     forcer_coherence = TRUE,
-    call_cholette    = rjd3bench::multivariatecholette) {
+    call_cholette    = rjd3bench::multivariatecholette,
+    mode_debug       = FALSE) {
 
   data_prepared <- preparer_donnees_equilibrage_ere_produit(
     data_produit         = data_produit,
@@ -335,6 +336,68 @@ equilibrer_produit_ere_multivariatecholette <- function(
   code_produit <- prep$code_produit
   fallback_utilise <- "aucun"
 
+  .series_meta <- function(z) {
+    s <- stats::ts(z)
+    st <- stats::start(s)
+    list(
+      class = class(z),
+      length = length(s),
+      frequency = stats::frequency(s),
+      start = c(as.integer(st[[1]]), as.integer(st[[2]]))
+    )
+  }
+
+  xlist_meta <- purrr::map(prep$xlist, .series_meta)
+  nb_ajustables <- length(prep$composantes_ajustables)
+  nb_total_series <- length(prep$xlist)
+
+  debug_pre_cholette <- list(
+    code_produit = code_produit,
+    noms_series = names(prep$xlist),
+    nb_series_total = nb_total_series,
+    nb_series_ajustables = nb_ajustables,
+    xlist = prep$xlist,
+    xlist_meta = xlist_meta,
+    tcvector = prep$tcvector,
+    ccvector = prep$ccvector,
+    start = xlist_meta[[1]]$start,
+    frequency = xlist_meta[[1]]$frequency
+  )
+
+  if (isTRUE(mode_debug)) {
+    return(list(
+      status = "debug_pre_cholette",
+      message = "Mode debug active: retour des objets d'entree avant appel Cholette.",
+      debug_pre_cholette = debug_pre_cholette
+    ))
+  }
+
+  if (nb_ajustables < 2L) {
+    return(list(
+      status = "cas_univarie_non_supporte_par_multivariatecholette",
+      message = paste0(
+        "Produit ", code_produit,
+        " : multivariatecholette requiert un cadre multivarie ; ",
+        "nb_series_ajustables=", nb_ajustables, "."
+      ),
+      diagnostic = list(
+        code_produit = code_produit,
+        composantes_ajustables = prep$composantes_ajustables,
+        composantes_figees = prep$composantes_figees,
+        nb_series_total = nb_total_series,
+        nb_series_ajustables = nb_ajustables
+      ),
+      contraintes = list(
+        xlist = prep$xlist,
+        tcvector = prep$tcvector,
+        ccvector = prep$ccvector
+      ),
+      debug_pre_cholette = debug_pre_cholette,
+      resultat_brut = NULL,
+      fallback_utilise = "non_applicable"
+    ))
+  }
+
   # --- Tentative 1 : appel standard ---
   res_cholette <- tryCatch(
     call_cholette(
@@ -345,82 +408,15 @@ equilibrer_produit_ere_multivariatecholette <- function(
     error = function(e) e
   )
 
-  # --- Fallback 1 : sans contraintes annuelles (tcvector vide) ---
-  # Utile quand les cibles annuelles individuelles sont inconsistantes
-  # avec la contrainte contemporaine, mais leur somme l'est.
   if (inherits(res_cholette, "error")) {
-    msg1 <- conditionMessage(res_cholette)
-    message("  [", code_produit, "] Tentative 1 echouee : ", msg1)
-    message("  [", code_produit, "] Fallback 1 : suppression tcvector...")
-
-    # Retirer les series Y_<comp> de xlist car elles ne sont plus referencees
-    noms_y <- paste0("Y_", make.names(prep$composantes_ajustables))
-    xlist_fb1 <- prep$xlist[!names(prep$xlist) %in% noms_y]
-
-    res_cholette <- tryCatch(
-      call_cholette(
-        xlist    = xlist_fb1,
-        tcvector = character(0),
-        ccvector = prep$ccvector
-      ),
-      error = function(e) e
-    )
-
-    if (!inherits(res_cholette, "error")) {
-      fallback_utilise <- "sans_tcvector"
-      message("  [", code_produit, "] Fallback 1 reussi.")
-    }
-  }
-
-  # --- Fallback 2 : distribution plate (si tout echoue) ---
-  if (inherits(res_cholette, "error")) {
-    msg2 <- conditionMessage(res_cholette)
-    message("  [", code_produit, "] Fallback 1 echoue : ", msg2)
-    message("  [", code_produit, "] Fallback 2 : distribution plate (cible/4)...")
-
-    annees_trim <- data_prepared |>
-      dplyr::distinct(.data$annee, .data$trimestre) |>
-      dplyr::arrange(.data$annee, .data$trimestre)
-
-    cibles_ann <- data_prepared |>
-      dplyr::filter(.data$ajustable) |>
-      dplyr::group_by(.data$composante, .data$annee) |>
-      dplyr::summarise(valeur_annuelle = dplyr::first(.data$valeur_annuelle),
-                       .groups = "drop")
-
-    series_ajustees_plate <- purrr::map_dfr(prep$composantes_ajustables, function(comp) {
-      annees_trim |>
-        dplyr::left_join(
-          cibles_ann |>
-            dplyr::filter(.data$composante == comp) |>
-            dplyr::select(.data$annee, .data$valeur_annuelle),
-          by = "annee"
-        ) |>
-        dplyr::mutate(
-          Code_Produit  = code_produit,
-          composante    = comp,
-          valeur_avant  = data_prepared |>
-            dplyr::filter(.data$composante == comp) |>
-            dplyr::arrange(.data$annee, .data$trimestre) |>
-            dplyr::pull(.data$valeur_trimestrielle),
-          valeur_apres  = tidyr::replace_na(.data$valeur_annuelle, 0) / 4,
-          delta         = .data$valeur_apres - .data$valeur_avant
-        ) |>
-        dplyr::select(.data$Code_Produit, .data$composante,
-                      .data$annee, .data$trimestre,
-                      .data$valeur_avant, .data$valeur_apres, .data$delta)
-    })
-
-    fallback_utilise <- "distribution_plate"
-    message("  [", code_produit, "] Fallback 2 applique.")
-
     return(list(
-      series_ajustees  = series_ajustees_plate,
-      diagnostic       = list(
+      status = "echec_multivariatecholette",
+      message = conditionMessage(res_cholette),
+      diagnostic = list(
         code_produit           = code_produit,
         composantes_ajustables = prep$composantes_ajustables,
         composantes_figees     = prep$composantes_figees,
-        fallback               = fallback_utilise,
+        fallback               = "aucun",
         message_erreur         = conditionMessage(res_cholette)
       ),
       contraintes      = list(
@@ -428,8 +424,9 @@ equilibrer_produit_ere_multivariatecholette <- function(
         tcvector = prep$tcvector,
         ccvector = prep$ccvector
       ),
-      resultat_brut    = NULL,
-      fallback_utilise = fallback_utilise
+      debug_pre_cholette = debug_pre_cholette,
+      resultat_brut = NULL,
+      fallback_utilise = "aucun"
     ))
   }
 

@@ -48,6 +48,10 @@
   )
 }
 
+.fake_multivariatecholette_error <- function(xlist, tcvector, ccvector) {
+  stop("jdplus.toolkit.base.core.ssf.SsfException: Inconsistent constraints in the model")
+}
+
 test_that("preparer_contraintes_equilibrage_ere_produit construit bien ccvector", {
   data_test <- .build_data_test()
 
@@ -104,4 +108,49 @@ test_that("equilibrer_ere_multivarie signale un produit sans modele", {
     ),
     "Aucun modele de bouclage"
   )
+})
+
+test_that("equilibrer_produit_ere_multivariatecholette expose le debug pre-cholette", {
+  data_test <- .build_data_test()
+
+  res <- equilibrer_produit_ere_multivariatecholette(
+    data_produit = data_test,
+    composantes_ajustables = c(
+      "CI Prix d'acquisition",
+      "CF Marchande Menage Prix d'acquisition"
+    ),
+    mode_debug = TRUE
+  )
+
+  expect_equal(res$status, "debug_pre_cholette")
+  expect_true(all(c("xlist", "tcvector", "ccvector", "start", "frequency", "noms_series") %in%
+                    names(res$debug_pre_cholette)))
+})
+
+test_that("equilibrer_produit_ere_multivariatecholette detecte explicitement le cas univarie", {
+  data_test <- .build_data_test()
+
+  res <- equilibrer_produit_ere_multivariatecholette(
+    data_produit = data_test,
+    composantes_ajustables = "CI Prix d'acquisition"
+  )
+
+  expect_equal(res$status, "cas_univarie_non_supporte_par_multivariatecholette")
+})
+
+test_that("equilibrer_produit_ere_multivariatecholette retourne un echec explicite sans fallback silencieux", {
+  data_test <- .build_data_test()
+
+  res <- equilibrer_produit_ere_multivariatecholette(
+    data_produit = data_test,
+    composantes_ajustables = c(
+      "CI Prix d'acquisition",
+      "CF Marchande Menage Prix d'acquisition"
+    ),
+    call_cholette = .fake_multivariatecholette_error
+  )
+
+  expect_equal(res$status, "echec_multivariatecholette")
+  expect_match(res$message, "Inconsistent constraints")
+  expect_equal(res$fallback_utilise, "aucun")
 })

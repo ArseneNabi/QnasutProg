@@ -2,6 +2,100 @@
 #' @import tidyr
 NULL
 
+#' Appliquer les ratios ERE trimestriels sur un agregat de base
+#'
+#' Multiplie pour chaque trimestre et chaque produit la valeur de l'agregat
+#' de base par le ratio ERE trimestrialise correspondant.
+#'
+#' @param df_base Tibble avec colonnes \code{annee}, \code{trimestre},
+#'   \code{Code_Produit}, \code{valeur}. Represente l'agregat de base
+#'   (importations, ou production+importations selon la composante).
+#' @param ratios_trim Sortie de \code{trimestrialiser_ratios_ere()}, filtree
+#'   sur la composante et le type_prix souhaites.
+#' @param composante Nom de la composante a filtrer dans \code{ratios_trim}.
+#' @param type_prix Type de prix a filtrer dans \code{ratios_trim}.
+#'
+#' @return Tibble avec colonnes \code{annee}, \code{trimestre},
+#'   \code{Code_Produit}, \code{composante}, \code{valeur_composante}.
+#' @export
+appliquer_ratios_ere <- function(df_base, ratios_trim, composante, type_prix) {
+  ratios_f <- ratios_trim |>
+    dplyr::filter(composante == .env$composante, type_prix == .env$type_prix) |>
+    dplyr::select(annee, trimestre, Code_Produit, ratio_trim)
+
+  df_base |>
+    dplyr::inner_join(ratios_f, by = c("annee", "trimestre", "Code_Produit")) |>
+    dplyr::mutate(valeur_composante = valeur * ratio_trim, composante = .env$composante) |>
+    dplyr::select(
+      annee, trimestre, Code_Produit, composante = composante,
+      valeur_composante
+    )
+}
+
+#' Assembler les composantes ressources ERE par application de ratios
+#'
+#' Applique les ratios trimestrialises sur les bases importations et
+#' production+importations pour obtenir les composantes de marges et taxes,
+#' puis les assemble avec la production et les importations.
+#'
+#' @param p1_ere Tibble production ERE trimestrielle.
+#' @param imp_ere Tibble importations ERE trimestrielles.
+#' @param ratios_trim Ratios ERE trimestrialises.
+#' @param type_prix Type de prix : \code{"CnaErECrt"} ou \code{"CnaErEVol"}.
+#' @param noms_ere Vecteur des noms des composantes ERE.
+#' @param composante_p1 Nom de la colonne valeur dans \code{p1_ere}.
+#' @param composante_imp Nom de la colonne valeur dans \code{imp_ere}.
+#' @return Tibble avec colonnes \code{annee}, \code{trimestre},
+#'   \code{Code_Produit}, \code{composante}, \code{valeur_composante}.
+#' @export
+assembler_ressources_ere <- function(p1_ere, imp_ere, ratios_trim, type_prix,
+                                     noms_ere,
+                                     composante_p1 = "P1_crt",
+                                     composante_imp = "imp_crt") {
+  base_imp <- imp_ere |>
+    dplyr::rename(valeur = dplyr::all_of(composante_imp))
+
+  base_prod_imp <- dplyr::bind_rows(
+    p1_ere |> dplyr::rename(valeur = dplyr::all_of(composante_p1)),
+    base_imp
+  ) |>
+    dplyr::group_by(annee, trimestre, Code_Produit) |>
+    dplyr::summarise(valeur = sum(valeur, na.rm = TRUE), .groups = "drop")
+
+  comps_base_imp <- c("IMPOT sur Import", "IMPOT sur export")
+  comps_base_both <- c(
+    "MARGE de commerce", "MARGE de transport", "TVA",
+    "IMPOT sur produit", "Subventions"
+  )
+
+  res_marges <- dplyr::bind_rows(
+    lapply(comps_base_imp, function(comp) {
+      nm <- noms_ere[grepl(comp, noms_ere, ignore.case = TRUE)][1]
+      if (is.na(nm)) {
+        return(NULL)
+      }
+      appliquer_ratios_ere(base_imp, ratios_trim, nm, type_prix)
+    }),
+    lapply(comps_base_both, function(comp) {
+      nm <- noms_ere[grepl(comp, noms_ere, ignore.case = TRUE)][1]
+      if (is.na(nm)) {
+        return(NULL)
+      }
+      appliquer_ratios_ere(base_prod_imp, ratios_trim, nm, type_prix)
+    })
+  )
+
+  dplyr::bind_rows(
+    p1_ere |>
+      dplyr::rename(valeur_composante = dplyr::all_of(composante_p1)) |>
+      dplyr::mutate(composante = "PRODUCTION"),
+    imp_ere |>
+      dplyr::rename(valeur_composante = dplyr::all_of(composante_imp)) |>
+      dplyr::mutate(composante = "IMPORTATIONS"),
+    res_marges
+  )
+}
+
 # ==============================================================================
 # ERE — PRODUCTION ET CI PAR PRODUIT ERE + RESSOURCES (COURANT, VPAP, CHAÎNÉ)
 # ==============================================================================

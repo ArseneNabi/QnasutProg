@@ -6,3 +6,6 @@
 ^AGENTS\.md$
 ^README\.md$
 ^\.claude$
+^Diagnostic_.*\.xlsx$
+^~\$.*\.xlsx$
+^tmp_.*\.R$

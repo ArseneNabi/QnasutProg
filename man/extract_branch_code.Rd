@@ -2,26 +2,26 @@
 % Please edit documentation in R/02_utils.R
 \name{extract_branch_code}
 \alias{extract_branch_code}
-\title{Extraire le code branche depuis un code composite (après le dernier "*")}
+\title{Extraire le code branche depuis un code composite (apres le dernier "*")}
 \usage{
 extract_branch_code(x)
 }
 \arguments{
-\item{x}{Vecteur de caractères contenant les codes composites.}
+\item{x}{Vecteur de caracteres contenant les codes composites.}
 }
 \value{
-Vecteur de caractères avec uniquement le code après le dernier \code{*}.
+Vecteur de caracteres avec uniquement le code apres le dernier \code{*}.
 }
 \description{
-Fonction utilitaire qui extrait la partie droite d'un code composite séparé
-par "\code{*}". Typiquement utilisée pour passer de \code{"TypeInd*CodeBranche"}
-à \code{"CodeBranche"}.
+Fonction utilitaire qui extrait la partie droite d'un code composite separe
+par "\code{*}". Typiquement utilisee pour passer de \code{"TypeInd*CodeBranche"}
+a \code{"CodeBranche"}.
 
 Exemples :
 \itemize{
-\item \code{"Ind1_PRIVE*A01007"} → \code{"A01007"}
-\item \code{"CI_TOTAL*B01001"}   → \code{"B01001"}
-\item \code{"A01007"}            → \code{"A01007"} (déjà propre)
+\item \code{"Ind1_PRIVE*A01007"} -> \code{"A01007"}
+\item \code{"CI_TOTAL*B01001"}   -> \code{"B01001"}
+\item \code{"A01007"}            -> \code{"A01007"} (deja propre)
 }
 }
 \seealso{

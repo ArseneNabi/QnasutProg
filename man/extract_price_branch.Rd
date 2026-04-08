@@ -7,9 +7,9 @@
 extract_price_branch(code)
 }
 \arguments{
-\item{code}{le code concaténé dont on veut extraire seulement le code branche
+\item{code}{le code concatene dont on veut extraire seulement le code branche
 Ex: "Ind1_PRIVE*A01007" -> "A01007"
-Ex: "A01007" -> "A01007" (Gère le cas où c'est déjà propre)}
+Ex: "A01007" -> "A01007" (gere le cas ou c'est deja propre)}
 }
 \description{
 Extrait la branche fine pour le Prix

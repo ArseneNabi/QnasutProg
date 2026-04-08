@@ -7,7 +7,7 @@
 extract_target_code(code)
 }
 \arguments{
-\item{code}{le code concaténé dont on veut extraire seulement le code branche
+\item{code}{le code concatene dont on veut extraire seulement le code branche
 Ex: "Ind1_PRIVE\emph{A01007" -> "PRIVE}A01007"}
 }
 \description{

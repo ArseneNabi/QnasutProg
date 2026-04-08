@@ -2,15 +2,15 @@
 % Please edit documentation in R/02_utils.R
 \name{clean_res}
 \alias{clean_res}
-\title{Consolidation des Résultats de benchmarking}
+\title{Consolidation des Resultats de benchmarking}
 \usage{
 clean_res(df, type_traitement)
 }
 \arguments{
-\item{df}{la base de fichers benchmarkés}
+\item{df}{la base de fichers benchmarkes}
 
-\item{type_traitement}{est le type de traitement concerné}
+\item{type_traitement}{est le type de traitement concerne}
 }
 \description{
-Consolidation des Résultats de benchmarking
+Consolidation des Resultats de benchmarking
 }

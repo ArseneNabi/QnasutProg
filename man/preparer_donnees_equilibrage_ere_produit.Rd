@@ -2,23 +2,20 @@
 % Please edit documentation in R/17_ere_equilibrage_multivarie.R
 \name{preparer_donnees_equilibrage_ere_produit}
 \alias{preparer_donnees_equilibrage_ere_produit}
-\title{Préparer un produit ERE pour équilibrage multivarié}
+\title{Préparer un produit ERE pour l'équilibrage multivarié}
 \usage{
 preparer_donnees_equilibrage_ere_produit(data_produit, composantes_ajustables)
 }
 \arguments{
-\item{data_produit}{Tibble long d'un seul produit avec colonnes :
+\item{data_produit}{Tibble long d'un seul produit. Colonnes requises :
 \code{Code_Produit}, \code{annee}, \code{trimestre}, \code{composante},
-\code{valeur_trimestrielle}, \code{valeur_annuelle},
-\code{type_bloc} (\code{"ressource"} ou \code{"emploi"}).}
+\code{valeur_trimestrielle}, \code{valeur_annuelle}, \code{type_bloc}.}
 
-\item{composantes_ajustables}{Vecteur des composantes emplois autorisees.}
+\item{composantes_ajustables}{Vecteur des composantes emplois autorisées.}
 }
 \value{
-Tibble prepare avec la colonne logique \code{ajustable}.
+Tibble enrichi avec colonne \code{ajustable} (logique).
 }
 \description{
-Normalise une table longue "produit x trimestre x composante" afin de
-construire une base d'entrée explicite et stable pour
-\code{rjd3bench::multivariatecholette()}.
+Préparer un produit ERE pour l'équilibrage multivarié
 }

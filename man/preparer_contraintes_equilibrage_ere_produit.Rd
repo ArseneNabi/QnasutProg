@@ -2,42 +2,41 @@
 % Please edit documentation in R/17_ere_equilibrage_multivarie.R
 \name{preparer_contraintes_equilibrage_ere_produit}
 \alias{preparer_contraintes_equilibrage_ere_produit}
-\title{Préparer les contraintes multivariées d'équilibrage ERE (un produit)}
+\title{Préparer les contraintes d'équilibrage ERE (un produit)}
 \usage{
 preparer_contraintes_equilibrage_ere_produit(
   data_prepared,
-  forcer_coherence = TRUE
+  tol_recentrage = 1e-06
 )
 }
 \arguments{
 \item{data_prepared}{Sortie de
 \code{preparer_donnees_equilibrage_ere_produit()}.}
 
-\item{forcer_coherence}{Logique. Si \code{TRUE} (defaut), recale la
-contrainte contemporaine pour garantir la coherence avec les cibles
-annuelles CNA.}
+\item{tol_recentrage}{Tolérance pour le recentrage. Défaut \code{1e-6}.}
 }
 \value{
 Liste : \code{xlist}, \code{tcvector}, \code{ccvector},
 \code{table_contrainte}, \code{composantes_ajustables},
-\code{composantes_figees}, \code{code_produit}.
+\code{composantes_figees}, \code{code_produit},
+\code{recentrage_applique}.
 }
 \description{
 Construit \code{xlist}, \code{tcvector} et \code{ccvector} pour
-\code{rjd3bench::multivariatecholette()}.
+\code{rjd3bench::multivariatecholette()}, avec recentrage par offset
+additif si nécessaire.
 }
-\section{Coherence des contraintes }{
+\section{Contrainte contemporaine }{
 
-L'erreur \code{Inconsistent constraints in the model} de JDemetra+ survient
-quand la somme annuelle de la contrainte contemporaine trimestrielle ne
-coincide pas avec la somme des cibles annuelles des composantes ajustables.
+\deqn{z(t) = \text{Ressources}_{tot}(t) - \text{Emplois\_figes}(t)}
+Les ressources totales incluent toutes les composantes ressources ERE
+(PRODUCTION, IMPORTATIONS, impôts, marges, taxes, subventions).
+}
 
-Avec \code{forcer_coherence = TRUE} (defaut), la fonction recale annee par
-annee la contrainte contemporaine pour qu'elle soit exactement coherente :
-\deqn{CONTRAINTE_CONTEMP_{ann} = \sum_t CONTRAINTE_CONTEMP_t
-  = \sum_j cible\_annuelle_j}
-Le recalage preserve le profil trimestriel via un facteur multiplicatif.
-Si \code{forcer_coherence = FALSE}, les contraintes sont utilisees telles
-quelles — ce mode est utile pour le diagnostic uniquement.
+\section{Cohérence obligatoire }{
+
+\deqn{\sum_t z(t) = \sum_j Y_j(\text{annee}) \quad \forall \text{annee}}
+Si cette condition n'est pas vérifiée, un offset additif est appliqué par
+année pour recentrer les contraintes trimestrielles.
 }
 

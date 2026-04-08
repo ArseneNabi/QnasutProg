@@ -43,11 +43,25 @@ if (!"produits_composantes_autorisees" %in% names(modele_obj)) {
   stop("Le modele charge est invalide : 'produits_composantes_autorisees' manquant.", call. = FALSE)
 }
 
-model_equil <- modele_obj$produits_composantes_autorisees |>
+tbl_modele <- modele_obj$produits_composantes_autorisees
+
+col_composante <- c("Composante", "composante", "composante_ajustable") |>
+  purrr::keep(~ .x %in% names(tbl_modele)) |>
+  dplyr::first()
+
+if (is.na(col_composante) || is.null(col_composante)) {
+  stop(
+    "Impossible d'identifier la colonne composante du modele. ",
+    "Colonnes attendues : Composante / composante / composante_ajustable.",
+    call. = FALSE
+  )
+}
+
+model_equil <- tbl_modele |>
   filter(.data$autorise) |>
   transmute(
     Code_Produit = as.character(.data$Code_Produit),
-    composante_ajustable = as.character(.data$composante)
+    composante_ajustable = as.character(.data[[col_composante]])
   ) |>
   distinct()
 
@@ -77,12 +91,64 @@ if (!is.na(path_data_ere) && file.exists(path_data_ere)) {
   message("[INFO] Chargement data_ere depuis : ", path_data_ere)
   data_ere <- readRDS(path_data_ere)
 } else {
-  stop(
-    "Impossible de trouver la table d'entree ERE (data_ere).\n",
-    "Fournis params$path_data_ere_rds vers un .rds contenant les colonnes :\n",
-    "Code_Produit, annee, trimestre, composante, valeur_trimestrielle, valeur_annuelle, type_bloc.",
-    call. = FALSE
-  )
+  message("[INFO] Aucun .rds data_ere trouve. Construction automatique depuis cna_ere_struct (repartition annuelle / 4).")
+
+  if (is.null(donnees_cnt$cna_ere_struct) || length(donnees_cnt$cna_ere_struct) == 0) {
+    stop(
+      "Impossible de construire data_ere : cna_ere_struct absent/vide dans donnees_cnt ",
+      "et aucun fichier .rds fourni.",
+      call. = FALSE
+    )
+  }
+
+  composantes_ressources <- c("PRODUCTION", "IMPORTATIONS")
+  composantes_emploi_modele <- model_equil |>
+    dplyr::pull(.data$composante_ajustable) |>
+    unique()
+
+  composantes_cibles <- unique(c(composantes_ressources, composantes_emploi_modele))
+
+  extraire_annuel <- function(composante) {
+    bloc_comp <- donnees_cnt$cna_ere_struct[[composante]]
+    if (is.null(bloc_comp) || is.null(bloc_comp$CnaErECrt)) {
+      return(tibble::tibble())
+    }
+
+    QnaSut::pivoter_ere_long(bloc_comp$CnaErECrt, "CnaErECrt", composante) |>
+      dplyr::select(.data$annee, .data$Code_Produit, valeur_annuelle = .data$valeur, .data$composante) |>
+      dplyr::mutate(
+        annee = as.integer(.data$annee),
+        Code_Produit = as.character(.data$Code_Produit),
+        valeur_annuelle = as.numeric(.data$valeur_annuelle)
+      ) |>
+      dplyr::filter(!is.na(.data$annee), !is.na(.data$Code_Produit), .data$Code_Produit != "")
+  }
+
+  data_ere <- purrr::map_dfr(composantes_cibles, function(comp) {
+    ann <- extraire_annuel(comp)
+    if (nrow(ann) == 0) {
+      return(tibble::tibble())
+    }
+
+    ann |>
+      tidyr::crossing(trimestre = 1:4) |>
+      dplyr::mutate(
+        valeur_trimestrielle = .data$valeur_annuelle / 4,
+        type_bloc = dplyr::if_else(.data$composante %in% composantes_ressources, "ressource", "emploi")
+      ) |>
+      dplyr::select(
+        .data$Code_Produit, .data$annee, .data$trimestre, .data$composante,
+        .data$valeur_trimestrielle, .data$valeur_annuelle, .data$type_bloc
+      )
+  })
+
+  if (nrow(data_ere) == 0) {
+    stop(
+      "Construction automatique de data_ere impossible : aucune composante exploitable ",
+      "dans cna_ere_struct pour les ressources/emplois du modele.",
+      call. = FALSE
+    )
+  }
 }
 
 colonnes_requises <- c(

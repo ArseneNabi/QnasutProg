@@ -2,40 +2,45 @@
 % Please edit documentation in R/17_ere_equilibrage_multivarie.R
 \name{equilibrer_produit_ere_multivariatecholette}
 \alias{equilibrer_produit_ere_multivariatecholette}
-\title{Equilibrer un produit ERE via multivariate Cholette}
+\title{Équilibrer un produit ERE (courant ou VPAP)}
 \usage{
 equilibrer_produit_ere_multivariatecholette(
   data_produit,
   composantes_ajustables,
-  forcer_coherence = TRUE,
-  call_cholette = rjd3bench::multivariatecholette,
-  mode_debug = FALSE
+  tol_recentrage = 1e-06,
+  rho = 1,
+  lambda = NULL,
+  call_cholette = rjd3bench::multivariatecholette
 )
 }
 \arguments{
-\item{data_produit}{Table longue d'un produit.}
+\item{data_produit}{Table longue d'un seul produit (pipeline benchmarké).}
 
-\item{composantes_ajustables}{Vecteur des composantes emplois autorisees.}
+\item{composantes_ajustables}{Vecteur des composantes emplois autorisées.}
 
-\item{forcer_coherence}{Recaler la contrainte contemporaine (defaut TRUE).}
+\item{tol_recentrage}{Tolérance pour le recentrage des contraintes.}
 
-\item{call_cholette}{Fonction solveur injectable.}
+\item{rho}{Paramètre de lissage transmis à \code{multivariatecholette()}.}
+
+\item{lambda}{Paramètre du modèle d'ajustement transmis à
+\code{multivariatecholette()}. Si \code{NULL}, la fonction choisit
+automatiquement \code{0} dès qu'une composante ajustable contient une
+valeur trimestrielle ou annuelle non positive, sinon \code{0.8}.}
+
+\item{call_cholette}{Fonction solveur (injectable pour tests unitaires).}
 }
 \value{
-Liste : \code{series_ajustees}, \code{diagnostic}, \code{contraintes},
-\code{resultat_brut}, \code{fallback_utilise}.
+Liste : \code{series_ajustees}, \code{diagnostic},
+\code{contraintes}, \code{resultat_brut}, \code{methode}.
 }
 \description{
-Exécute l'équilibrage d'un produit ERE en combinant contraintes temporelles
-annuelles et contrainte contemporaine trimestrielle via
-\code{rjd3bench::multivariatecholette()}.
+Deux méthodes selon le nombre de composantes ajustables :
 
-Si le solveur echoue avec les parametres par defaut, deux fallbacks sont
-tentes automatiquement avant de signaler l'echec :
-\enumerate{
-\item Recalage strict de la contrainte (facteur exact par annee).
-\item Suppression des contraintes annuelles (\code{tcvector = character(0)})
-pour ne garder que la contrainte contemporaine — utile quand les
-cibles CNA annuelles et la contrainte contemporaine sont incompatibles.
-}
+\strong{N ≥ 2 composantes} : \code{rjd3bench::multivariatecholette()}.
+Si l'appel standard échoue, un second essai est tenté sans \code{tcvector}.
+En cas d'échec définitif, le produit est marqué \code{"echec"} — aucune
+distribution plate n'est appliquée.
+
+\strong{N = 1 composante} : ajustement direct
+\eqn{x_j(t)_{\text{après}} = x_j(t)_{\text{avant}} + z(t)}.
 }
